@@ -1,0 +1,51 @@
+name: backend
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: root
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -proot"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=10
+      redis:
+        image: redis/redis-stack-server:7.4-v0
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd="redis-cli ping"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=10
+    env:
+      DB_USERNAME: root
+      DB_PASSWORD: root
+      JWT_SECRET: ci-only-secret-not-for-production-0123456789abcdef
+      DEEPSEEK_API_KEY: ci-fake-key
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: maven
+
+      - name: Run tests
+        run: mvn -B -ntp test
+
+      - name: Print test summary on failure
+        if: failure()
+        run: grep -rh "Tests run" target/surefire-reports/*.txt || true

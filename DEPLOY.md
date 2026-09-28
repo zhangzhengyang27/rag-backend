@@ -41,6 +41,7 @@ tech-codex 的 rewrites 把后端地址**在构建期烘焙进 routes-manifest**
 ## 日常运维
 
 - **导入白名单**：目录导入/docs 同步仅允许 `app.kb.import.allowed-roots`（默认 = `KB_DOCS_ROOT`）白名单内的路径。
-- **数据增长**：`kb_retrieval_trace` / `kb_chat_usage` / `kb_audit_log` 只增不清，需定期人工清理（待引入保留策略）。
-- **Schema 变更**：当前 `ddl-auto=update`，升级前建议备份 MySQL（待引入 Flyway 迁移基线）。
+- **数据增长**：检索追踪/聊天用量/审计日志由保留策略每日清理（`app.data-retention.*`，默认 90/180/365 天，0=不清理）。
+- **Schema 变更**：由 Flyway 管理（`db/migration`，V1 存量基线 + 增量脚本），Hibernate 仅 validate；
+  升级前建议备份 MySQL。存量库首次启动会自动 baseline，无需手工干预。
 - **验证**：`curl http://127.0.0.1:18080/actuator/health` 应返回 UP。

@@ -3,6 +3,7 @@ package org.example.repository;
 import org.example.entity.ChatUsageEntity;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
@@ -29,4 +30,9 @@ public interface ChatUsageRepository extends BaseRepository<ChatUsageEntity> {
             "from ChatUsageEntity u where u.libraryId = :libraryId and u.createdDate >= :from " +
             "group by u.userId order by count(u) desc")
     List<Object[]> aggregateByUser(@Param("libraryId") String libraryId, @Param("from") Date from);
+
+    /** 保留期清理：删除创建时间早于截止时间的用量记录（bulk delete，不逐条加载实体）。 */
+    @Modifying
+    @Query("delete from ChatUsageEntity u where u.createdDate < :cutoff")
+    long deleteAllByCreatedDateBefore(@Param("cutoff") Date cutoff);
 }
