@@ -901,6 +901,11 @@ public class KbDocumentServiceImpl implements KbDocumentService {
                 .build();
     }
 
+    @Override
+    public java.util.List<String> categories(String libraryId) {
+        return documentRepository.findDistinctCategories(libraryId);
+    }
+
     /** 从 Markdown frontmatter 解析单行标量键值（slug/category 等），无则返回 null */
     private String resolveFrontmatterScalar(String content, String key) {
         if (content == null || content.isBlank()) {

@@ -98,6 +98,20 @@ class KbSearchServiceImplTest {
     }
 
     @Test
+    void scopedFilterIntersectsWithCategory() {
+        when(documentRepository.findDocIdsByLibrary("default")).thenReturn(Set.of(1L, 2L, 3L));
+        when(documentRepository.findDocIdsByLibraryAndCategory("default", "Java 基础")).thenReturn(Set.of(2L));
+
+        // 分类过滤与路径过滤同语义：docId 集合交集
+        assertThat(service.scopedFilterDocIds("default", null, null, "Java 基础")).containsExactly(2L);
+        // 分类无命中 → 空集（检索直接短路返回空）
+        assertThat(service.scopedFilterDocIds("default", null, null, "不存在的分类")).isEmpty();
+        // 分类为空白 → 不参与过滤
+        assertThat(service.scopedFilterDocIds("default", null, null, "  ")).containsExactlyInAnyOrder(1L, 2L, 3L);
+        verify(documentRepository, never()).findDocIdsByLibraryAndCategory("default", "  ");
+    }
+
+    @Test
     void searchMultiPropagatesCallerLibraryToAsyncSubqueries() {
         // 模拟登录态在调用线程：异步子查询必须使用这里捕获的空间，而不是回落默认空间
         when(kbConfig.getPublicLibrary()).thenReturn("default");

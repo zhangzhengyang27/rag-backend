@@ -48,4 +48,12 @@ public interface KnowledgeDocumentRepository extends BaseRepository<KnowledgeDoc
     /** 空间内按空间集合过滤：指定多个 space 的 docId 集合（ACL 空间授权用）。 */
     @Query("select d.id from KnowledgeDocumentEntity d where d.libraryId = :libraryId and d.space in :spaces")
     java.util.Set<Long> findDocIdsByLibraryAndSpaceIn(@Param("libraryId") String libraryId, @Param("spaces") java.util.Collection<String> spaces);
+
+    /** 空间内按课程分类过滤（frontmatter category，检索范围限定用）：category 精确匹配的 docId 集合。 */
+    @Query("select d.id from KnowledgeDocumentEntity d where d.libraryId = :libraryId and d.category = :category")
+    java.util.Set<Long> findDocIdsByLibraryAndCategory(@Param("libraryId") String libraryId, @Param("category") String category);
+
+    /** 空间内课程分类去重清单（frontmatter category 升序，供前端问答/检索过滤器）。 */
+    @Query("select distinct d.category from KnowledgeDocumentEntity d where d.libraryId = :libraryId and d.category is not null order by d.category")
+    java.util.List<String> findDistinctCategories(@Param("libraryId") String libraryId);
 }

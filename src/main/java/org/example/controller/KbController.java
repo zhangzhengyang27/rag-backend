@@ -46,6 +46,9 @@ public class KbController {
     @Autowired
     private org.example.service.KbFeedbackService kbFeedbackService;
 
+    @Autowired
+    private org.example.service.KbDocumentService kbDocumentService;
+
     /** 用户侧配额/范围的主空间：个人知识库（u-{username}），无 DB 依赖。 */
     private String primaryLibrary() {
         String username = org.example.security.SecurityUtil.currentUsername();
@@ -67,13 +70,15 @@ public class KbController {
      *
      * @param docPath 可选，文档相对路径（docs 根相对）；传入时问答范围锁定到该篇文档（"问这篇文档"）
      * @param scope   可选检索范围：public（缺省，仅公共文档）/ mine（当前空间）/ all（公共+当前空间）
+     * @param category 可选课程分类过滤（kb_document.category 精确匹配）；docPath 传入时失效
      */
     @PostMapping(value = "/chat-stream", consumes = MediaType.APPLICATION_FORM_URLENCODED_VALUE, produces = MediaType.TEXT_EVENT_STREAM_VALUE + ";charset=utf-8")
     public Flux<ServerSentEvent<String>> chatStream(@RequestParam("message") String message,
                                                      @RequestParam(value = "conversationId", required = false) String conversationId,
                                                      @RequestParam(value = "docPath", required = false) String docPath,
-                                                     @RequestParam(value = "scope", required = false) String scope) {
-        return kbChatService.chatStream(currentUserId(), conversationId, message, docPath, scope);
+                                                     @RequestParam(value = "scope", required = false) String scope,
+                                                     @RequestParam(value = "category", required = false) String category) {
+        return kbChatService.chatStream(currentUserId(), conversationId, message, docPath, scope, category);
     }
 
     /**
@@ -89,22 +94,33 @@ public class KbController {
     }
 
     /**
+     * 公共知识库可用的课程分类清单（frontmatter category 去重升序），
+     * 供前端问答/检索的分类过滤器（与 /search、/chat-stream 的 category 参数同口径）。
+     */
+    @GetMapping("/categories")
+    public List<String> categories() {
+        return kbDocumentService.categories("default");
+    }
+
+    /**
      * 混合检索，返回带溯源的分块命中。可选 path 按目录前缀过滤（如 "04-前端/"），space 按空间过滤（如 "前端"）；
-     * scope 检索范围：public（缺省，仅公共文档）/ mine（当前空间）/ all（公共+当前空间）。
+     * scope 检索范围：public（缺省，仅公共文档）/ mine（当前空间）/ all（公共+当前空间）；
+     * category 按课程分类过滤（kb_document.category 精确匹配）。
      */
     @GetMapping("/search")
     public List<KbChunkHit> search(@RequestParam("query") String query,
                                    @RequestParam(value = "k", defaultValue = "5") int k,
                                    @RequestParam(value = "path", required = false) String path,
                                    @RequestParam(value = "space", required = false) String space,
-                                   @RequestParam(value = "scope", required = false) String scope) {
+                                   @RequestParam(value = "scope", required = false) String scope,
+                                   @RequestParam(value = "category", required = false) String category) {
         // M3：每日检索配额扣减（仅用户侧 /search 扣减；chat-stream 内部检索与 admin 工具不计）——
         // 记在用户个人空间上，与「我的知识库」配额展示同源
         quotaService.consumeRetrieval(primaryLibrary());
         List<String> librarys = org.example.library.KbScopes.resolve(scope,
                 org.example.security.SecurityUtil.currentUsername(), primaryLibrary(), "default");
         return kbSearchService.searchAs(librarys, org.example.security.SecurityUtil.currentUsername(),
-                query, k, path, space, null);
+                query, k, path, space, category, null);
     }
 
     /**

@@ -130,7 +130,7 @@ public class KbSearchServiceImpl implements KbSearchService {
     @Override
     public List<KbChunkHit> searchAs(String libraryId, String username, String query, int topK,
                                      String pathFilter, String space, SearchOptions options) {
-        return searchAs(java.util.List.of(libraryId), username, query, topK, pathFilter, space, options);
+        return searchAs(java.util.List.of(libraryId), username, query, topK, pathFilter, space, null, options);
     }
 
     /**
@@ -140,6 +140,15 @@ public class KbSearchServiceImpl implements KbSearchService {
     @Override
     public List<KbChunkHit> searchAs(List<String> libraryIds, String username, String query, int topK,
                                      String pathFilter, String space, SearchOptions options) {
+        return searchAs(libraryIds, username, query, topK, pathFilter, space, null, options);
+    }
+
+    /**
+     * 多空间显式身份检索（含课程分类过滤）：category 非空时仅命中该分类文档（kb_document.category）。
+     */
+    @Override
+    public List<KbChunkHit> searchAs(List<String> libraryIds, String username, String query, int topK,
+                                     String pathFilter, String space, String category, SearchOptions options) {
         long startNanos = System.nanoTime();
         // 参数覆盖（A/B 评测）：options 非空且字段非 null 时覆盖全局配置，否则沿用运行时配置生效值
         int k = options != null && options.getTopK() != null ? Math.max(1, options.getTopK()) : Math.max(1, topK);
@@ -153,8 +162,8 @@ public class KbSearchServiceImpl implements KbSearchService {
         int vectorTopN = runtimeConfig.getInt("retrieval.vector-top-n");
         int bm25TopN = runtimeConfig.getInt("retrieval.bm25-top-n");
         int finalTopK = Math.min(k, runtimeConfig.getInt("retrieval.final-top-k"));
-        // 过滤条件：逐空间「空间 ∩ 目录前缀 ∩ 空间 ∩ ACL」后并集（都转成 docId 集合，供向量/关键词双路过滤）
-        final java.util.Set<Long> filterDocIds = scopedFilterDocIdsMulti(libraryIds, username, pathFilter, space);
+        // 过滤条件：逐空间「空间 ∩ 目录前缀 ∩ space ∩ 分类 ∩ ACL」后并集（都转成 docId 集合，供向量/关键词双路过滤）
+        final java.util.Set<Long> filterDocIds = scopedFilterDocIdsMulti(libraryIds, username, pathFilter, space, category);
         if (filterDocIds.isEmpty()) {
             return java.util.Collections.emptyList();
         }
@@ -250,13 +259,19 @@ public class KbSearchServiceImpl implements KbSearchService {
     @Override
     public List<KbChunkHit> searchMultiAs(List<String> libraryIds, String username, List<String> queries,
                                           int topK, String pathFilter) {
+        return searchMultiAs(libraryIds, username, queries, topK, pathFilter, null);
+    }
+
+    @Override
+    public List<KbChunkHit> searchMultiAs(List<String> libraryIds, String username, List<String> queries,
+                                          int topK, String pathFilter, String category) {
         if (queries == null || queries.isEmpty()) {
             return java.util.Collections.emptyList();
         }
         // 并行检索各子查询，提升召回覆盖率。
         // 任一路检索异常只丢弃该路结果，不影响其余子查询与主链路（不向调用方抛 500）。
         List<CompletableFuture<List<KbChunkHit>>> futures = queries.stream()
-                .map(q -> CompletableFuture.supplyAsync(() -> searchAs(libraryIds, username, q, topK, pathFilter, null, null)))
+                .map(q -> CompletableFuture.supplyAsync(() -> searchAs(libraryIds, username, q, topK, pathFilter, null, category, null)))
                 .collect(Collectors.toList());
         List<List<KbChunkHit>> batches = new ArrayList<>();
         for (CompletableFuture<List<KbChunkHit>> f : futures) {
@@ -277,10 +292,14 @@ public class KbSearchServiceImpl implements KbSearchService {
     }
 
     /**
-     * 按空间 + 目录前缀 + 空间取交集得到检索可见的 docId 集合；无任何可见文档时返回空集合。
+     * 按空间 + 目录前缀 + space + 课程分类取交集得到检索可见的 docId 集合；无任何可见文档时返回空集合。
      * 供检索主链路与单测直接调用。
      */
     java.util.Set<Long> scopedFilterDocIds(String libraryId, String pathFilter, String space) {
+        return scopedFilterDocIds(libraryId, pathFilter, space, null);
+    }
+
+    java.util.Set<Long> scopedFilterDocIds(String libraryId, String pathFilter, String space, String category) {
         java.util.Set<Long> libraryIds = documentRepository.findDocIdsByLibrary(libraryId);
         if (libraryIds == null || libraryIds.isEmpty()) {
             return java.util.Collections.emptySet();
@@ -291,7 +310,11 @@ public class KbSearchServiceImpl implements KbSearchService {
         java.util.Set<Long> spaceIds = (space != null && !space.isBlank())
                 ? documentRepository.findDocIdsByLibraryAndSpace(libraryId, space.trim())
                 : null;
-        if ((pathIds != null && pathIds.isEmpty()) || (spaceIds != null && spaceIds.isEmpty())) {
+        java.util.Set<Long> categoryIds = (category != null && !category.isBlank())
+                ? documentRepository.findDocIdsByLibraryAndCategory(libraryId, category.trim())
+                : null;
+        if ((pathIds != null && pathIds.isEmpty()) || (spaceIds != null && spaceIds.isEmpty())
+                || (categoryIds != null && categoryIds.isEmpty())) {
             return java.util.Collections.emptySet();
         }
         java.util.Set<Long> result = new java.util.HashSet<>(libraryIds);
@@ -301,15 +324,23 @@ public class KbSearchServiceImpl implements KbSearchService {
         if (spaceIds != null) {
             result.retainAll(spaceIds);
         }
+        if (categoryIds != null) {
+            result.retainAll(categoryIds);
+        }
         return result;
     }
 
     /**
-     * 多空间版本的范围过滤：逐空间「空间 ∩ 目录前缀 ∩ 空间」后并集。
+     * 多空间版本的范围过滤：逐空间「空间 ∩ 目录前缀 ∩ space ∩ 分类」后并集。
      * 任一空间无可见文档只跳过该空间，不影响其余空间；供检索主链路与单测直接调用。
      */
     java.util.Set<Long> scopedFilterDocIdsMulti(java.util.List<String> libraryIds, String username,
                                                 String pathFilter, String space) {
+        return scopedFilterDocIdsMulti(libraryIds, username, pathFilter, space, null);
+    }
+
+    java.util.Set<Long> scopedFilterDocIdsMulti(java.util.List<String> libraryIds, String username,
+                                                String pathFilter, String space, String category) {
         java.util.Set<Long> result = new java.util.HashSet<>();
         if (libraryIds == null) {
             return result;
@@ -318,7 +349,7 @@ public class KbSearchServiceImpl implements KbSearchService {
             if (t == null || t.isBlank()) {
                 continue;
             }
-            result.addAll(scopedFilterDocIds(t, pathFilter, space));
+            result.addAll(scopedFilterDocIds(t, pathFilter, space, category));
         }
         return result;
     }

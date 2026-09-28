@@ -34,6 +34,13 @@ public interface KbChatService {
      */
     Flux<ServerSentEvent<String>> chatStream(String userId, String conversationId, String message, String docPath, String scope);
 
+    /**
+     * 带 scope + 课程分类过滤的问答：category 非空时仅在 kb_document.category 精确匹配的文档内检索。
+     * 优先级：docPath（单文档锁定）&gt; category；docPath 非空时 category 失效。
+     */
+    Flux<ServerSentEvent<String>> chatStream(String userId, String conversationId, String message,
+                                             String docPath, String scope, String category);
+
     /** 分页查询指定对话的问答历史；conversationId 为空时回退为查询全部（旧行为）。 */
     Page<ChatHistoryVo> queryHistory(String userId, String conversationId, Pageable page);
 

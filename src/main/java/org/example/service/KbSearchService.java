@@ -73,11 +73,22 @@ public interface KbSearchService {
                               String pathFilter, String space, SearchOptions options);
 
     /**
+     * 多空间显式身份检索（含课程分类过滤）：category 非空时仅在 kb_document.category
+     * 精确匹配的文档内检索（与 pathFilter/space 同为 docId 集合交集语义）。
+     */
+    List<KbChunkHit> searchAs(List<String> libraryIds, String username, String query, int topK,
+                              String pathFilter, String space, String category, SearchOptions options);
+
+    /**
      * 多空间多查询并行检索：语义同 {@link #searchMulti(List, int, String)}，但空间集合与
      * 用户名由调用方在持有登录态的线程上解析后显式传入（scope 感知的问答链路用）。
      */
     List<KbChunkHit> searchMultiAs(List<String> libraryIds, String username, List<String> queries,
                                    int topK, String pathFilter);
+
+    /** 多空间多查询并行检索（含课程分类过滤），语义同上。 */
+    List<KbChunkHit> searchMultiAs(List<String> libraryIds, String username, List<String> queries,
+                                   int topK, String pathFilter, String category);
 
     /** 面向 LLM 的检索：返回带来源标注的拼接文本，供问答助手注入。 */
     String retrieveForLlm(String query, int topK);

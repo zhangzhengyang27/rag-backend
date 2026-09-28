@@ -57,4 +57,7 @@ public interface KbDocumentService {
 
     /** 知识库统计（限定空间）。 */
     KbStatsView stats(String libraryId);
+
+    /** 空间内课程分类去重清单（frontmatter category 升序），供用户侧问答/检索的分类过滤器。 */
+    java.util.List<String> categories(String libraryId);
 }

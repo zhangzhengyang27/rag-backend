@@ -98,18 +98,27 @@ public class KbChatServiceImpl implements KbChatService {
 
     @Override
     public Flux<ServerSentEvent<String>> chatStream(String userId, String conversationId, String message) {
-        return chatStream(userId, conversationId, message, null, null);
+        return chatStream(userId, conversationId, message, null, null, null);
     }
 
     @Override
     public Flux<ServerSentEvent<String>> chatStream(String userId, String conversationId, String message, String docPath) {
-        return chatStream(userId, conversationId, message, docPath, null);
+        return chatStream(userId, conversationId, message, docPath, null, null);
     }
 
     @Override
     public Flux<ServerSentEvent<String>> chatStream(String userId, String conversationId, String message, String docPath, String scope) {
+        return chatStream(userId, conversationId, message, docPath, scope, null);
+    }
+
+    @Override
+    public Flux<ServerSentEvent<String>> chatStream(String userId, String conversationId, String message,
+                                                    String docPath, String scope, String category) {
         // 文档相对路径归一（docs 根相对，'/' 分隔）：空串视为全局问答
         final String pathFilter = (docPath == null || docPath.isBlank()) ? null : docPath.trim().replace('\\', '/');
+        // 课程分类过滤：与 pathFilter 同为 docId 集合交集语义；单文档锁定优先，category 失效
+        final String categoryFilter = pathFilter != null || category == null || category.isBlank()
+                ? null : category.trim();
         if (userId == null || userId.isBlank()) {
             return Flux.just(ChatEvent.error("用户ID不能为空。").toSse());
         }
@@ -211,7 +220,7 @@ public class KbChatServiceImpl implements KbChatService {
             // 空间与用户名都在请求线程解析后显式传入（异步线程读不到 SecurityContext；
             // 用户名取登录态而非 userId 参数，服务级直调无登录态时 ACL 自然豁免）
             sources = kbSearchService.searchMultiAs(scopeLibraries,
-                    org.example.security.SecurityUtil.currentUsername(), rewritten, runtimeConfig.getInt("retrieval.final-top-k"), pathFilter);
+                    org.example.security.SecurityUtil.currentUsername(), rewritten, runtimeConfig.getInt("retrieval.final-top-k"), pathFilter, categoryFilter);
             sourcesJson = toJson(sources);
 
             // 相关度判定（RelevanceChecker 拒答）：
