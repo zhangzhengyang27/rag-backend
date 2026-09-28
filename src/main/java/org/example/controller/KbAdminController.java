@@ -58,6 +58,9 @@ public class KbAdminController {
     private org.example.service.KbFeedbackService kbFeedbackService;
 
     @Autowired
+    private org.example.service.KbWeeklyReportService kbWeeklyReportService;
+
+    @Autowired
     private org.example.service.KbTraceService kbTraceService;
 
     private String currentUserId() {
@@ -146,6 +149,16 @@ public class KbAdminController {
     @GetMapping("/stats")
     public KbStatsView stats() {
         return kbDocumentService.stats(resolveLibraryId());
+    }
+
+    /**
+     * 运营周报：近 N 天的用量汇总/按日趋势 + 反馈点赞点踩与点踩率 + 点踩 Top 问题榜（内容补强清单）
+     * + 检索质量趋势（评测日报）+ 打开中的告警数。
+     */
+    @GetMapping("/report")
+    public org.example.vo.KbWeeklyReportView weeklyReport(
+            @RequestParam(value = "days", defaultValue = "30") int days) {
+        return kbWeeklyReportService.weekly(resolveLibraryId(), days);
     }
 
     /**
