@@ -55,12 +55,16 @@ public class KbChatServiceImpl implements KbChatService {
     private final ChatModel chatModel;
     private final org.springframework.transaction.support.TransactionTemplate transactionTemplate;
     private final org.example.config.KbConfig kbConfig;
+    private final org.example.repository.KnowledgeDocumentRepository documentRepository;
     /** 运行时配置存储：意图路由/拒答/改写等开关在线可调，问答链路每次读取生效值。 */
     private final org.example.config.RuntimeConfigStore runtimeConfig;
     private final org.example.quota.QuotaService quotaService;
     private final ContentGuard contentGuard;
     private final UsageStatService usageStatService;
     private final int messageMaxLength;
+
+    /** 文档内问答整文档回退的正文上限（字符）：超长文档截断注入，防撑爆上下文。 */
+    private static final int DOC_FALLBACK_MAX_CHARS = 12_000;
 
     public KbChatServiceImpl(KbAssistant kbAssistant,
                              RateLimiter rateLimiter,
@@ -73,6 +77,7 @@ public class KbChatServiceImpl implements KbChatService {
                              @Qualifier("openAiChatModel") ChatModel chatModel,
                              org.springframework.transaction.PlatformTransactionManager transactionManager,
                              org.example.config.KbConfig kbConfig,
+                             org.example.repository.KnowledgeDocumentRepository documentRepository,
                              org.example.config.RuntimeConfigStore runtimeConfig,
                              org.example.quota.QuotaService quotaService,
                              ContentGuard contentGuard,
@@ -89,6 +94,7 @@ public class KbChatServiceImpl implements KbChatService {
         this.chatModel = chatModel;
         this.transactionTemplate = new org.springframework.transaction.support.TransactionTemplate(transactionManager);
         this.kbConfig = kbConfig;
+        this.documentRepository = documentRepository;
         this.runtimeConfig = runtimeConfig;
         this.quotaService = quotaService;
         this.contentGuard = contentGuard;
@@ -221,6 +227,29 @@ public class KbChatServiceImpl implements KbChatService {
             // 用户名取登录态而非 userId 参数，服务级直调无登录态时 ACL 自然豁免）
             sources = kbSearchService.searchMultiAs(scopeLibraries,
                     org.example.security.SecurityUtil.currentUsername(), rewritten, runtimeConfig.getInt("retrieval.final-top-k"), pathFilter, categoryFilter);
+
+            // 文档内问答（docScope）的 0 命中兜底：总结/概览类问题（如 UI 示例「总结要点」）
+            // 与正文片段无语义重叠，向量检索必然 0 命中并被相关度判定拒绝；但用户已显式
+            // 锁定该文档，此时直接加载文档正文作为整文档证据（截断注入），而非拒答。
+            if (pathFilter != null && sources.isEmpty()) {
+                var scopedDoc = documentRepository.findByLibraryIdAndFilePath(kbConfig.getPublicLibrary(), pathFilter);
+                if (scopedDoc.isPresent() && scopedDoc.get().getContent() != null && !scopedDoc.get().getContent().isBlank()) {
+                    String content = scopedDoc.get().getContent();
+                    String text = content.length() > DOC_FALLBACK_MAX_CHARS
+                            ? content.substring(0, DOC_FALLBACK_MAX_CHARS) + "…（长文档已截断）" : content;
+                    sources = List.of(KbChunkHit.builder()
+                            .docId(scopedDoc.get().getId())
+                            .chunkIndex(0)
+                            .title(scopedDoc.get().getTitle())
+                            .filePath(scopedDoc.get().getFilePath())
+                            .text(text)
+                            .score(1.0)
+                            .source("DOCUMENT")
+                            .build());
+                    log.info("文档内问答检索 0 命中，已回退为整文档证据 - docId: {}, path: {}, 注入字符: {}",
+                            scopedDoc.get().getId(), pathFilter, text.length());
+                }
+            }
             sourcesJson = toJson(sources);
 
             // 相关度判定（RelevanceChecker 拒答）：
