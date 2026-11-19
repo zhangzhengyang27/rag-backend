@@ -199,14 +199,25 @@ public class KbSearchServiceImpl implements KbSearchService {
                     .title(defaultEmpty(toStringVal(meta.get("title"))))
                     .filePath(defaultEmpty(toStringVal(meta.get("filePath"))))
                     .siteSlug(defaultEmpty(toStringVal(meta.get("siteSlug"))))
+                    .headingPath(defaultEmpty(toStringVal(meta.get("headingPath"))))
+                    .heading(defaultEmpty(toStringVal(meta.get("heading"))))
+                    .anchor(defaultEmpty(toStringVal(meta.get("heading"))))
+                    .headingOrdinal(toInteger(meta.get("headingOrdinal")))
+                    .chunkType(defaultEmpty(toStringVal(meta.get("chunkType"))))
+                    .codeLang(defaultEmpty(toStringVal(meta.get("codeLang"))))
                     .text(segment.text())
                     .score(match.score())
                     .source(RESULT_SOURCE_VECTOR)
                     .build());
         }
+        // 旧向量索引未声明新 metadata 字段时，按 docId+chunkIndex 回查 kb_chunk 补齐；
+        // 新索引已带字段时这里不会产生额外查询。
+        enrichFromDb(vectorHits);
 
         // 2. 关键词召回（MySQL 全文/模糊，对中文技术文档术语友好）
         List<KbChunkHit> keywordHits = keywordRetrieve(libraryIds, query, bm25TopN);
+        // Redis BM25 路不带 heading/code 字段，统一回查；MySQL 路已有字段时不会多查
+        enrichFromDb(keywordHits);
         if (filterDocIds != null) {
             keywordHits.removeIf(h -> !filterDocIds.contains(h.getDocId()));
         }
@@ -429,6 +440,12 @@ public class KbSearchServiceImpl implements KbSearchService {
                         .score(rerankScore != null ? rerankScore : 0.0)
                         .source(src.getSource())
                         .siteSlug(src.getSiteSlug())
+                        .headingPath(src.getHeadingPath())
+                        .heading(src.getHeading())
+                        .anchor(src.getAnchor())
+                        .headingOrdinal(src.getHeadingOrdinal())
+                        .chunkType(src.getChunkType())
+                        .codeLang(src.getCodeLang())
                         .build());
             }
             return reranked;
@@ -452,6 +469,34 @@ public class KbSearchServiceImpl implements KbSearchService {
             sb.append(hit.getText()).append("\n\n");
         }
         return sb.toString().trim();
+    }
+
+    /**
+     * 检索命中补齐结构元数据：向量与 Redis BM25 两路都可能来自旧索引（没有
+     * headingPath/heading/chunkType 字段），按 docId + chunkIndex 回查 kb_chunk。
+     * 已经有 chunkType 的命中（MySQL 关键词路或新索引）直接跳过，避免无谓查询。
+     */
+    private void enrichFromDb(List<KbChunkHit> hits) {
+        if (hits == null || hits.isEmpty()) {
+            return;
+        }
+        for (KbChunkHit hit : hits) {
+            if (hit.getDocId() == null || hit.getChunkIndex() == null) {
+                continue;
+            }
+            if (hit.getChunkType() != null && !hit.getChunkType().isBlank()) {
+                continue;
+            }
+            chunkRepository.findByDocIdAndChunkIndex(hit.getDocId(), hit.getChunkIndex())
+                    .ifPresent(chunk -> {
+                        hit.setHeadingPath(chunk.getHeadingPath());
+                        hit.setHeading(chunk.getAnchor());
+                        hit.setAnchor(chunk.getAnchor());
+                        hit.setHeadingOrdinal(chunk.getHeadingOrdinal());
+                        hit.setChunkType(chunk.getChunkType());
+                        hit.setCodeLang(chunk.getCodeLang());
+                    });
+        }
     }
 
     /**
@@ -505,6 +550,12 @@ public class KbSearchServiceImpl implements KbSearchService {
                             .title(doc.getTitle())
                             .filePath(doc.getFilePath())
                             .siteSlug(doc.getSiteSlug())
+                            .headingPath(chunk.getHeadingPath())
+                            .heading(chunk.getAnchor())
+                            .anchor(chunk.getAnchor())
+                            .headingOrdinal(chunk.getHeadingOrdinal())
+                            .chunkType(chunk.getChunkType())
+                            .codeLang(chunk.getCodeLang())
                             .text(chunk.getText())
                             .score(KEYWORD_MATCH_SCORE)
                             .source(RESULT_SOURCE_KEYWORD)

@@ -1,10 +1,6 @@
 package org.example.service;
 
-import dev.langchain4j.data.document.Document;
-import dev.langchain4j.data.document.DocumentSplitter;
 import dev.langchain4j.data.document.Metadata;
-import dev.langchain4j.data.document.splitter.DocumentByParagraphSplitter;
-import dev.langchain4j.data.document.splitter.DocumentByRegexSplitter;
 import dev.langchain4j.data.embedding.Embedding;
 import dev.langchain4j.data.segment.TextSegment;
 import dev.langchain4j.model.embedding.EmbeddingModel;
@@ -25,9 +21,12 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * 知识库文档索引器：负责将 Markdown 正文清洗、段落分块、向量化并写入专有向量索引，
+ * 知识库文档索引器：负责将 Markdown 正文按结构分块、向量化并写入专有向量索引，
  * 同时将分块持久化到 {@code kb_chunk} 供关键词检索与溯源使用。
- * <p>流程：正文 → {@link Document} → {@link DocumentByParagraphSplitter} 分块 → 向量化 → Redis 存储 + 分块落库。</p>
+ *
+ * <p>分块交给 {@link MarkdownChunker}：标题路径与围栏代码块都是一等公民。
+ * 这里只负责编排「切分 → 向量化 → 删旧向量 → 写新向量 → 单事务落库」，
+ * 不再用 {@code stripMarkdown} 把代码块替换成空格。</p>
  */
 @Slf4j
 @Component
@@ -67,28 +66,10 @@ public class KbIndexer {
      * 向量以 Redis 为准、分块以 DB 为准，二者可由 vectorId 关联对账。</p>
      */
     public void indexDocument(KnowledgeDocumentEntity doc, String markdown) {
-        // 1. 清洗 Markdown 语法（保留标题行，供结构感知切分识别层级）——失败不触碰任何旧数据
-        String clean = stripMarkdown(markdown);
-        Document document = Document.from(clean);
-        // 结构感知切分：先按 Markdown 标题（# ~ ######）切成"标题块"，
-        // 再通过显式 subSplitter（段落切分）将超长标题块细切到 maxSegmentSize，
-        // 使每个片段保留所属标题上下文，语义更完整。
-        // 注意：必须显式传入 subSplitter，否则标题块超过 maxSegmentSize 时
-        // DocumentByRegexSplitter 无法再细分，会抛"no subSplitter defined"异常。
-        DocumentSplitter splitter = new DocumentByRegexSplitter(
-                "(?m)^#{1,6}\\s.*$", "\n\n", maxSegmentSize, maxOverlapSize,
-                new DocumentByParagraphSplitter(maxSegmentSize, maxOverlapSize));
-        // 切分失败/为空：抛出而非静默跳过——调用方按失败处理，已索引文档保持原状
-        List<TextSegment> segments;
-        try {
-            segments = splitter.split(document);
-        } catch (Exception e) {
-            log.warn("文档切分失败，保持原文档不变 - docId: {}, title: {}, err: {}",
-                    doc.getId(), doc.getTitle(), e.getMessage());
-            throw new IllegalStateException("文档切分失败: " + e.getMessage(), e);
-        }
-        if (segments == null || segments.isEmpty()) {
-            log.warn("文档切分结果为空，保持原文档不变 - docId: {}, title: {}", doc.getId(), doc.getTitle());
+        // 1. 结构感知分块（保留代码块、标题路径、标题序号）；失败不触碰任何旧数据
+        List<MarkdownChunker.Chunk> chunks = MarkdownChunker.chunk(markdown, maxSegmentSize, maxOverlapSize);
+        if (chunks.isEmpty()) {
+            log.warn("文档分块结果为空，保持原文档不变 - docId: {}, title: {}", doc.getId(), doc.getTitle());
             throw new IllegalStateException("文档切分结果为空，无法索引");
         }
 
@@ -97,17 +78,45 @@ public class KbIndexer {
             documentRepository.save(doc);
         }
 
-        // 2. 构建分块实体（暂存，待向量化拿到 vectorId 后统一落库）
-        List<KnowledgeChunkEntity> chunks = new ArrayList<>(segments.size());
-        for (int i = 0; i < segments.size(); i++) {
-            TextSegment seg = segments.get(i);
-            KnowledgeChunkEntity chunk = new KnowledgeChunkEntity();
-            chunk.setLibraryId(doc.getLibraryId());
-            chunk.setDocId(doc.getId());
-            chunk.setChunkIndex(i);
-            chunk.setText(seg.text());
-            chunk.setCharCount(seg.text().length());
-            chunks.add(chunk);
+        // 2. 构建分块实体与向量 segment（暂存，待向量化拿到 vectorId 后统一落库）
+        List<KnowledgeChunkEntity> entities = new ArrayList<>(chunks.size());
+        List<TextSegment> segments = new ArrayList<>(chunks.size());
+        for (int i = 0; i < chunks.size(); i++) {
+            MarkdownChunker.Chunk chunk = chunks.get(i);
+            // DB 列宽约束：标题路径 512、标题 255、语言 32；超长标题按列宽截断，
+            // 避免一条超长 heading 让整篇文档索引失败（Redis metadata 同步用截断值）
+            String headingPath = truncate(chunk.headingPath(), 512);
+            String heading = truncate(chunk.heading(), 255);
+            String codeLang = truncate(chunk.codeLang(), 32);
+            KnowledgeChunkEntity entity = new KnowledgeChunkEntity();
+            entity.setLibraryId(doc.getLibraryId());
+            entity.setDocId(doc.getId());
+            entity.setChunkIndex(i);
+            entity.setText(chunk.text());
+            entity.setCharCount(chunk.text().length());
+            entity.setHeadingPath(headingPath);
+            // 后端只存标题文本，锚点由前端用 extractToc 映射，避免 Java/JS slug 算法不一致
+            entity.setAnchor(heading);
+            entity.setHeadingOrdinal(chunk.headingOrdinal());
+            entity.setChunkType(chunk.chunkType());
+            entity.setCodeLang(codeLang);
+            entity.setTokenCount(chunk.tokenCount());
+            entities.add(entity);
+
+            Map<String, Comparable<?>> meta = new HashMap<>();
+            meta.put("docId", doc.getId());
+            meta.put("chunkIndex", i);
+            meta.put("title", doc.getTitle() == null ? "" : doc.getTitle());
+            meta.put("filePath", doc.getFilePath() == null ? "" : doc.getFilePath());
+            meta.put("siteSlug", doc.getSiteSlug() == null ? "" : doc.getSiteSlug());
+            meta.put("category", doc.getCategory() == null ? "" : doc.getCategory());
+            meta.put("headingPath", headingPath == null ? "" : headingPath);
+            meta.put("heading", heading == null ? "" : heading);
+            meta.put("headingOrdinal", chunk.headingOrdinal());
+            meta.put("chunkType", chunk.chunkType());
+            meta.put("codeLang", codeLang == null ? "" : codeLang);
+            meta.put("tokenCount", chunk.tokenCount());
+            segments.add(TextSegment.from(chunk.text(), Metadata.from(meta)));
         }
 
         // 3. 向量化（网络调用，事务外执行，避免长事务占用连接）
@@ -115,7 +124,7 @@ public class KbIndexer {
 
         // 4. 落库前先按 vectorId 精准删除该文档的 Redis 旧向量（归并更新场景）
         if (doc.getId() != null) {
-            java.util.List<String> oldVectorIds = chunkRepository.findVectorIdsByDocId(doc.getId());
+            List<String> oldVectorIds = chunkRepository.findVectorIdsByDocId(doc.getId());
             if (oldVectorIds != null && !oldVectorIds.isEmpty()) {
                 try {
                     kbEmbeddingStore.removeAll(oldVectorIds);
@@ -125,22 +134,11 @@ public class KbIndexer {
             }
         }
 
-        // 5. 向量写入专有索引（带溯源元数据），拿到各分块的 vectorId 用于后续精准删除
-        List<TextSegment> metaSegments = new ArrayList<>(segments.size());
-        for (int i = 0; i < segments.size(); i++) {
-            Map<String, Comparable<?>> meta = new HashMap<>();
-            meta.put("docId", doc.getId());
-            meta.put("title", doc.getTitle() == null ? "" : doc.getTitle());
-            meta.put("filePath", doc.getFilePath() == null ? "" : doc.getFilePath());
-            meta.put("siteSlug", doc.getSiteSlug() == null ? "" : doc.getSiteSlug());
-            meta.put("category", doc.getCategory() == null ? "" : doc.getCategory());
-            meta.put("chunkIndex", i);
-            metaSegments.add(TextSegment.from(segments.get(i).text(), Metadata.from(meta)));
-        }
-        List<String> vectorIds = kbEmbeddingStore.addAll(embeddings, metaSegments);
+        // 5. 向量写入专有索引（带溯源与结构元数据），拿到各分块的 vectorId 用于后续精准删除
+        List<String> vectorIds = kbEmbeddingStore.addAll(embeddings, segments);
         if (vectorIds != null) {
-            for (int i = 0; i < Math.min(vectorIds.size(), chunks.size()); i++) {
-                chunks.get(i).setVectorId(vectorIds.get(i));
+            for (int i = 0; i < Math.min(vectorIds.size(), entities.size()); i++) {
+                entities.get(i).setVectorId(vectorIds.get(i));
             }
         }
 
@@ -150,32 +148,21 @@ public class KbIndexer {
                 // 归并更新：清理旧分块（旧 Redis 向量已在上方删除）
                 chunkRepository.deleteByDocId(doc.getId());
             }
-            chunkRepository.saveAll(chunks);
-            doc.setChunkCount(segments.size());
+            chunkRepository.saveAll(entities);
+            doc.setChunkCount(chunks.size());
             doc.setStatus(KbDocumentStatus.INDEXED);
             documentRepository.save(doc);
         });
-        log.info("知识库文档已索引 - id: {}, title: {}, chunks: {}", doc.getId(), doc.getTitle(), segments.size());
+        log.info("知识库文档已索引 - id: {}, title: {}, chunks: {}, codeChunks: {}",
+                doc.getId(), doc.getTitle(), chunks.size(),
+                chunks.stream().filter(c -> MarkdownChunker.TYPE_CODE.equals(c.chunkType())).count());
     }
 
-    private String stripMarkdown(String markdown) {
-        if (markdown == null) {
-            return "";
+    /** 按 DB 列宽截断，null 保持 null（用于标题路径/标题/代码语言）。 */
+    private static String truncate(String value, int max) {
+        if (value == null) {
+            return null;
         }
-        String text = markdown
-                .replaceAll("```[\\s\\S]*?```", " ")                       // 代码块
-                .replaceAll("<!--[\\s\\S]*?-->", " ")                       // HTML 注释
-                .replaceAll("!\\[[^\\]]*\\]\\([^)]*\\)", " ")               // 图片
-                .replaceAll("\\[([^\\]]*)\\]\\([^)]*\\)", "$1")             // 链接（保留链接文字）
-                // 注意：标题行（# ~ ######）与换行刻意保留，供 KbIndexer 的结构感知切分按层级切分；
-                // 若把换行折叠成单空格，整篇文档会变成一行，标题正则会一次性吞掉全文导致切分为空。
-                .replaceAll("[`\\*_~>]", " ")                               // 行内格式标记
-                .replaceAll("(?m)^\\s*[-*+]\\s+", "")                        // 无序列表标记（逐行）
-                .replaceAll("\\|", " ")
-                // 只折叠行内横向空白，保留换行（标题/段落结构依赖换行）
-                .replaceAll("[ \\t]+", " ")
-                .replaceAll("\\n{3,}", "\n\n")                              // 折叠多余空行为段落分隔
-                .trim();
-        return text;
+        return value.length() <= max ? value : value.substring(0, max);
     }
 }

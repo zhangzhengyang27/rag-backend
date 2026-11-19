@@ -45,7 +45,8 @@ public class RedisBm25KeywordSearch {
 
     /** 只取构造命中所需字段：默认返回会带上 512 维 vector，单次检索多传数百 KB */
     private static final String[] RETURN_FIELDS = {
-            "$.docId", "$.chunkIndex", "$.title", "$.filePath", "$.siteSlug", "$.text"};
+            "$.docId", "$.chunkIndex", "$.title", "$.filePath", "$.siteSlug", "$.text",
+            "$.headingPath", "$.heading", "$.headingOrdinal", "$.chunkType", "$.codeLang"};
 
     private final JedisPooled jedis;
     private final KbConfig kbConfig;
@@ -122,6 +123,12 @@ public class RedisBm25KeywordSearch {
                             .title(defaultEmpty(payload.title()))
                             .filePath(defaultEmpty(payload.filePath()))
                             .siteSlug(defaultEmpty(payload.siteSlug()))
+                            .headingPath(defaultEmpty(payload.headingPath()))
+                            .heading(defaultEmpty(payload.heading()))
+                            .anchor(defaultEmpty(payload.heading()))
+                            .headingOrdinal(payload.headingOrdinal())
+                            .chunkType(defaultEmpty(payload.chunkType()))
+                            .codeLang(defaultEmpty(payload.codeLang()))
                             .text(defaultEmpty(payload.text()))
                             .score(1.0)
                             .source(SOURCE_KEYWORD)
@@ -164,6 +171,11 @@ public class RedisBm25KeywordSearch {
         String filePath = null;
         String siteSlug = null;
         String text = null;
+        String headingPath = null;
+        String heading = null;
+        Integer headingOrdinal = null;
+        String chunkType = null;
+        String codeLang = null;
         for (Map.Entry<String, Object> entry : properties) {
             switch (entry.getKey() == null ? "" : entry.getKey()) {
                 case "$.docId" -> docId = asLong(entry.getValue());
@@ -172,6 +184,11 @@ public class RedisBm25KeywordSearch {
                 case "$.filePath" -> filePath = asString(entry.getValue());
                 case "$.siteSlug" -> siteSlug = asString(entry.getValue());
                 case "$.text" -> text = asString(entry.getValue());
+                case "$.headingPath" -> headingPath = asString(entry.getValue());
+                case "$.heading" -> heading = asString(entry.getValue());
+                case "$.headingOrdinal" -> headingOrdinal = asInt(entry.getValue());
+                case "$.chunkType" -> chunkType = asString(entry.getValue());
+                case "$.codeLang" -> codeLang = asString(entry.getValue());
                 default -> {
                     // 忽略未知字段
                 }
@@ -180,7 +197,8 @@ public class RedisBm25KeywordSearch {
         if (docId == null || docId < 0 || chunkIndex == null || chunkIndex < 0) {
             return null;
         }
-        return new RedisChunkDoc(docId, chunkIndex, title, filePath, siteSlug, text);
+        return new RedisChunkDoc(docId, chunkIndex, title, filePath, siteSlug, text,
+                headingPath, heading, headingOrdinal, chunkType, codeLang);
     }
 
     /** RETURN 返回值为 JSON 编码字符串（数字裸值、字符串带引号），统一转 Long。 */
@@ -228,6 +246,8 @@ public class RedisBm25KeywordSearch {
 
     /** Redis JSON 文档中的分块元数据（与 KbIndexer 写入的 meta 对应）。 */
     private record RedisChunkDoc(Long docId, Integer chunkIndex, String title,
-                                 String filePath, String siteSlug, String text) {
+                                 String filePath, String siteSlug, String text,
+                                 String headingPath, String heading, Integer headingOrdinal,
+                                 String chunkType, String codeLang) {
     }
 }

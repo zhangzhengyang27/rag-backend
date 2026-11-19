@@ -5,10 +5,14 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 import java.util.List;
+import java.util.Optional;
 
 public interface KnowledgeChunkRepository extends BaseRepository<KnowledgeChunkEntity> {
 
     List<KnowledgeChunkEntity> findByDocIdOrderByChunkIndexAsc(Long docId);
+
+    /** 按文档 + 分块序号精确回查（检索侧补齐旧向量索引缺失的 heading/code 元数据）。 */
+    Optional<KnowledgeChunkEntity> findByDocIdAndChunkIndex(Long docId, Integer chunkIndex);
 
     long countByDocId(Long docId);
 

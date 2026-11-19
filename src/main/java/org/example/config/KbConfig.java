@@ -188,6 +188,16 @@ public class KbConfig {
         metadataConfig.put("chunkIndex", NumericField.of("$.chunkIndex").as("chunkIndex"));
         metadataConfig.put("title", TextField.of("$.title").as("title"));
         metadataConfig.put("filePath", TextField.of("$.filePath").as("filePath"));
+        // 结构元数据：新建索引时随向量一起写入；存量索引没有这些 schema 字段时，
+        // 检索侧按 docId+chunkIndex 回查 kb_chunk 补齐，下一次全量重建后自然生效。
+        metadataConfig.put("siteSlug", TextField.of("$.siteSlug").as("siteSlug"));
+        metadataConfig.put("category", TextField.of("$.category").as("category"));
+        metadataConfig.put("headingPath", TextField.of("$.headingPath").as("headingPath"));
+        metadataConfig.put("heading", TextField.of("$.heading").as("heading"));
+        metadataConfig.put("headingOrdinal", NumericField.of("$.headingOrdinal").as("headingOrdinal"));
+        metadataConfig.put("chunkType", TextField.of("$.chunkType").as("chunkType"));
+        metadataConfig.put("codeLang", TextField.of("$.codeLang").as("codeLang"));
+        metadataConfig.put("tokenCount", NumericField.of("$.tokenCount").as("tokenCount"));
         builder.metadataConfig(metadataConfig);
         return builder.build();
     }

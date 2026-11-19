@@ -1,0 +1,287 @@
+# Redis snapshot 2026-11-19 16:20:26
+## DBSIZE
+15
+## keyspace
+# Keyspace
+db0:keys=15,expires=1,avg_ttl=172769096,subexpiry=0
+## kb_embeddings
+index_name
+kb_embeddings
+index_options
+
+index_definition
+key_type
+JSON
+prefixes
+lostsystem:kbdoc:
+default_score
+1
+attributes
+identifier
+$.text
+attribute
+text
+type
+TEXT
+WEIGHT
+1
+identifier
+$.vector
+attribute
+vector
+type
+VECTOR
+algorithm
+HNSW
+data_type
+FLOAT32
+dim
+512
+distance_metric
+COSINE
+M
+16
+ef_construction
+200
+num_docs
+8
+max_doc_id
+8
+num_terms
+141
+num_records
+151
+inverted_sz_mb
+0.013759613037109375
+vector_index_sz_mb
+2.2404632568359375
+total_inverted_index_blocks
+512
+offset_vectors_sz_mb
+1.5544891357421875e-4
+doc_table_size_mb
+0.01624298095703125
+sortable_values_size_mb
+0
+key_table_size_mb
+2.765655517578125e-4
+tag_overhead_sz_mb
+0
+text_overhead_sz_mb
+0.004706382751464844
+total_index_memory_sz_mb
+0.037853240966796875
+geoshapes_sz_mb
+0
+records_per_doc_avg
+18.875
+bytes_per_record_avg
+95.54966735839844
+offsets_per_term_avg
+1.079470157623291
+offset_bits_per_record_avg
+8
+hash_indexing_failures
+0
+total_indexing_time
+0.9110000133514404
+indexing
+0
+percent_indexed
+1
+number_of_uses
+31
+cleaning
+0
+gc_stats
+bytes_collected
+0
+total_ms_run
+0
+total_cycles
+0
+average_cycle_time_ms
+nan
+last_run_time_ms
+0
+gc_numeric_trees_missed
+0
+gc_blocks_denied
+0
+cursor_stats
+global_idle
+0
+global_total
+0
+index_capacity
+128
+index_total
+0
+dialect_stats
+dialect_1
+0
+dialect_2
+1
+dialect_3
+0
+dialect_4
+0
+Index Errors
+indexing failures
+0
+last indexing error
+N/A
+last indexing error key
+N/A
+background indexing status
+OK
+field statistics
+identifier
+$.text
+attribute
+text
+Index Errors
+indexing failures
+0
+last indexing error
+N/A
+last indexing error key
+N/A
+identifier
+$.vector
+attribute
+vector
+Index Errors
+indexing failures
+0
+last indexing error
+N/A
+last indexing error key
+N/A
+## kb_embeddings_bm25
+index_name
+kb_embeddings_bm25
+index_options
+
+index_definition
+key_type
+JSON
+prefixes
+lostsystem:kbdoc:
+default_language
+chinese
+default_score
+1
+attributes
+identifier
+$.text
+attribute
+text
+type
+TEXT
+WEIGHT
+1
+num_docs
+8
+max_doc_id
+8
+num_terms
+311
+num_records
+359
+inverted_sz_mb
+0.030725479125976563
+vector_index_sz_mb
+0
+total_inverted_index_blocks
+512
+offset_vectors_sz_mb
+4.61578369140625e-4
+doc_table_size_mb
+0.01624298095703125
+sortable_values_size_mb
+0
+key_table_size_mb
+2.765655517578125e-4
+tag_overhead_sz_mb
+0
+text_overhead_sz_mb
+0.010380744934082031
+total_index_memory_sz_mb
+0.05974388122558594
+geoshapes_sz_mb
+0
+records_per_doc_avg
+44.875
+bytes_per_record_avg
+89.74373626708984
+offsets_per_term_avg
+1.3481894731521606
+offset_bits_per_record_avg
+8
+hash_indexing_failures
+0
+total_indexing_time
+146.32899475097656
+indexing
+0
+percent_indexed
+1
+number_of_uses
+59
+cleaning
+0
+gc_stats
+bytes_collected
+0
+total_ms_run
+0
+total_cycles
+0
+average_cycle_time_ms
+nan
+last_run_time_ms
+0
+gc_numeric_trees_missed
+0
+gc_blocks_denied
+0
+cursor_stats
+global_idle
+0
+global_total
+0
+index_capacity
+128
+index_total
+0
+dialect_stats
+dialect_1
+0
+dialect_2
+1
+dialect_3
+0
+dialect_4
+0
+Index Errors
+indexing failures
+0
+last indexing error
+N/A
+last indexing error key
+N/A
+background indexing status
+OK
+field statistics
+identifier
+$.text
+attribute
+text
+Index Errors
+indexing failures
+0
+last indexing error
+N/A
+last indexing error key
+N/A
