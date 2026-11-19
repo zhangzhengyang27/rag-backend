@@ -1,0 +1,507 @@
+# Redis snapshot 2026-11-19 18:44:22
+## DBSIZE
+273419
+## keyspace
+# Keyspace
+db0:keys=273419,expires=1,avg_ttl=169600897,subexpiry=0
+## kb_embeddings
+index_name
+kb_embeddings
+index_options
+
+index_definition
+key_type
+JSON
+prefixes
+lostsystem:kbdoc:
+default_score
+1
+attributes
+identifier
+$.text
+attribute
+text
+type
+TEXT
+WEIGHT
+1
+identifier
+$.vector
+attribute
+vector
+type
+VECTOR
+algorithm
+HNSW
+data_type
+FLOAT32
+dim
+512
+distance_metric
+COSINE
+M
+16
+ef_construction
+200
+identifier
+$.codeLang
+attribute
+codeLang
+type
+TEXT
+WEIGHT
+1
+identifier
+$.heading
+attribute
+heading
+type
+TEXT
+WEIGHT
+1
+identifier
+$.docId
+attribute
+docId
+type
+NUMERIC
+identifier
+$.filePath
+attribute
+filePath
+type
+TEXT
+WEIGHT
+1
+identifier
+$.headingOrdinal
+attribute
+headingOrdinal
+type
+NUMERIC
+identifier
+$.tokenCount
+attribute
+tokenCount
+type
+NUMERIC
+identifier
+$.chunkIndex
+attribute
+chunkIndex
+type
+NUMERIC
+identifier
+$.title
+attribute
+title
+type
+TEXT
+WEIGHT
+1
+identifier
+$.siteSlug
+attribute
+siteSlug
+type
+TEXT
+WEIGHT
+1
+identifier
+$.category
+attribute
+category
+type
+TEXT
+WEIGHT
+1
+identifier
+$.chunkType
+attribute
+chunkType
+type
+TEXT
+WEIGHT
+1
+identifier
+$.headingPath
+attribute
+headingPath
+type
+TEXT
+WEIGHT
+1
+num_docs
+273418
+max_doc_id
+273418
+num_terms
+1539770
+num_records
+11502042
+inverted_sz_mb
+219.38638305664063
+vector_index_sz_mb
+637.32666015625
+total_inverted_index_blocks
+1969794
+offset_vectors_sz_mb
+14.3311128616333
+doc_table_size_mb
+36.01232147216797
+sortable_values_size_mb
+0
+key_table_size_mb
+10.176948547363281
+tag_overhead_sz_mb
+0
+text_overhead_sz_mb
+51.39537048339844
+total_index_memory_sz_mb
+378.7218017578125
+geoshapes_sz_mb
+0
+records_per_doc_avg
+42.06761169433594
+bytes_per_record_avg
+20.000213623046875
+offsets_per_term_avg
+1.3054518699645996
+offset_bits_per_record_avg
+8.006340026855469
+hash_indexing_failures
+0
+total_indexing_time
+468903.1875
+indexing
+0
+percent_indexed
+1
+number_of_uses
+23
+cleaning
+0
+gc_stats
+bytes_collected
+0
+total_ms_run
+0
+total_cycles
+0
+average_cycle_time_ms
+nan
+last_run_time_ms
+0
+gc_numeric_trees_missed
+0
+gc_blocks_denied
+0
+cursor_stats
+global_idle
+0
+global_total
+0
+index_capacity
+128
+index_total
+0
+dialect_stats
+dialect_1
+0
+dialect_2
+1
+dialect_3
+0
+dialect_4
+0
+Index Errors
+indexing failures
+0
+last indexing error
+N/A
+last indexing error key
+N/A
+background indexing status
+OK
+field statistics
+identifier
+$.text
+attribute
+text
+Index Errors
+indexing failures
+0
+last indexing error
+N/A
+last indexing error key
+N/A
+identifier
+$.vector
+attribute
+vector
+Index Errors
+indexing failures
+0
+last indexing error
+N/A
+last indexing error key
+N/A
+identifier
+$.codeLang
+attribute
+codeLang
+Index Errors
+indexing failures
+0
+last indexing error
+N/A
+last indexing error key
+N/A
+identifier
+$.heading
+attribute
+heading
+Index Errors
+indexing failures
+0
+last indexing error
+N/A
+last indexing error key
+N/A
+identifier
+$.docId
+attribute
+docId
+Index Errors
+indexing failures
+0
+last indexing error
+N/A
+last indexing error key
+N/A
+identifier
+$.filePath
+attribute
+filePath
+Index Errors
+indexing failures
+0
+last indexing error
+N/A
+last indexing error key
+N/A
+identifier
+$.headingOrdinal
+attribute
+headingOrdinal
+Index Errors
+indexing failures
+0
+last indexing error
+N/A
+last indexing error key
+N/A
+identifier
+$.tokenCount
+attribute
+tokenCount
+Index Errors
+indexing failures
+0
+last indexing error
+N/A
+last indexing error key
+N/A
+identifier
+$.chunkIndex
+attribute
+chunkIndex
+Index Errors
+indexing failures
+0
+last indexing error
+N/A
+last indexing error key
+N/A
+identifier
+$.title
+attribute
+title
+Index Errors
+indexing failures
+0
+last indexing error
+N/A
+last indexing error key
+N/A
+identifier
+$.siteSlug
+attribute
+siteSlug
+Index Errors
+indexing failures
+0
+last indexing error
+N/A
+last indexing error key
+N/A
+identifier
+$.category
+attribute
+category
+Index Errors
+indexing failures
+0
+last indexing error
+N/A
+last indexing error key
+N/A
+identifier
+$.chunkType
+attribute
+chunkType
+Index Errors
+indexing failures
+0
+last indexing error
+N/A
+last indexing error key
+N/A
+identifier
+$.headingPath
+attribute
+headingPath
+Index Errors
+indexing failures
+0
+last indexing error
+N/A
+last indexing error key
+N/A
+## kb_embeddings_bm25
+index_name
+kb_embeddings_bm25
+index_options
+
+index_definition
+key_type
+JSON
+prefixes
+lostsystem:kbdoc:
+default_language
+chinese
+default_score
+1
+attributes
+identifier
+$.text
+attribute
+text
+type
+TEXT
+WEIGHT
+1
+num_docs
+273418
+max_doc_id
+273418
+num_terms
+269635
+num_records
+10057604
+inverted_sz_mb
+98.89602661132813
+vector_index_sz_mb
+0
+total_inverted_index_blocks
+1969794
+offset_vectors_sz_mb
+13.501108169555664
+doc_table_size_mb
+36.01232147216797
+sortable_values_size_mb
+0
+key_table_size_mb
+10.176948547363281
+tag_overhead_sz_mb
+0
+text_overhead_sz_mb
+9.000039100646973
+total_index_memory_sz_mb
+170.953857421875
+geoshapes_sz_mb
+0
+records_per_doc_avg
+36.78471755981445
+bytes_per_record_avg
+10.310606956481934
+offsets_per_term_avg
+1.3698515892028809
+offset_bits_per_record_avg
+8.220368385314941
+hash_indexing_failures
+0
+total_indexing_time
+127376.65625
+indexing
+0
+percent_indexed
+1
+number_of_uses
+52
+cleaning
+0
+gc_stats
+bytes_collected
+0
+total_ms_run
+0
+total_cycles
+0
+average_cycle_time_ms
+nan
+last_run_time_ms
+0
+gc_numeric_trees_missed
+0
+gc_blocks_denied
+0
+cursor_stats
+global_idle
+0
+global_total
+0
+index_capacity
+128
+index_total
+0
+dialect_stats
+dialect_1
+0
+dialect_2
+1
+dialect_3
+0
+dialect_4
+0
+Index Errors
+indexing failures
+0
+last indexing error
+N/A
+last indexing error key
+N/A
+background indexing status
+OK
+field statistics
+identifier
+$.text
+attribute
+text
+Index Errors
+indexing failures
+0
+last indexing error
+N/A
+last indexing error key
+N/A
