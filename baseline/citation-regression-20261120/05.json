@@ -1,0 +1,34 @@
+{
+  "no": 5,
+  "question": "Promise 的三种状态与链式调用？",
+  "expected": [
+    1106
+  ],
+  "sources": 14,
+  "cited": [
+    1,
+    2,
+    3,
+    7,
+    8,
+    13
+  ],
+  "invalid": [],
+  "protocolPass": true,
+  "citedDocIds": [
+    1104,
+    1111,
+    1113,
+    1106,
+    1105,
+    1113
+  ],
+  "matched": [
+    1106
+  ],
+  "pass": true,
+  "reason": "",
+  "elapsedS": 7.26,
+  "bytes": 16037,
+  "answerPreview": "## Promise 的三种状态\n\nPromise 必须且只能处于以下三种状态之一 [2]：\n\n- **Pending（进行中）**：初始状态，可能转换为 fulfilled 或 rejected [2]\n- **Fulfilled（已成功）**：不可再转换，必须持有一个不再改变的值 [2]\n- **Rejected（已失败）**：不可再转换，必须持有一个不再改变的原因 [2]\n\n状态转换是**单向不可逆**的：只能由 Pending → Fulfilled（通过 `resolve(value)`）或 Pending → Rejected（通过 `reject(reason)`），已落定的状态"
+}

@@ -1,0 +1,71 @@
+{
+  "migration": "V5__content_gap.sql, applied 2026-11-20 09:24:54",
+  "signals_tested": {
+    "NO_ANSWER": true,
+    "ZERO_CITATION": true,
+    "THUMB_DOWN": true,
+    "FOLLOW_UP": true
+  },
+  "rows": [
+    {
+      "id": 2,
+      "question": "火星基地的核聚变冷却系统怎么设计？",
+      "status": "TRIAGED",
+      "frequency": 3,
+      "signals": "NO_ANSWER:2,THUMB_DOWN:1",
+      "clusterKey": "c2",
+      "evalCaseId": null,
+      "relatedDocCount": 20
+    },
+    {
+      "id": 6,
+      "question": "Webpack 的 Tree Shaking 原理？",
+      "status": "OPEN",
+      "frequency": 1,
+      "signals": "NO_ANSWER:1",
+      "clusterKey": "c6",
+      "evalCaseId": null,
+      "relatedDocCount": 10
+    },
+    {
+      "id": 3,
+      "question": "那具体该怎么设计呢？",
+      "status": "TRIAGED",
+      "frequency": 1,
+      "signals": "FOLLOW_UP:1",
+      "clusterKey": "c3",
+      "evalCaseId": null,
+      "relatedDocCount": 15
+    },
+    {
+      "id": 5,
+      "question": "用一句话解释什么是 HTTP，回答中不要出现任何 [n] 引用标记。",
+      "status": "PLANNED",
+      "frequency": 1,
+      "signals": "ZERO_CITATION:1",
+      "clusterKey": "c5",
+      "evalCaseId": 21,
+      "relatedDocCount": 17
+    }
+  ],
+  "api_checks": [
+    "GET /admin/kb/gaps 200",
+    "GET /top 200",
+    "GET /summary 200",
+    "GET /clusters 200",
+    "GET /export.csv 200",
+    "POST /{id}/status 200",
+    "POST /batch-status 200",
+    "POST /{id}/convert 200 -> eval case 21"
+  ],
+  "summary": {
+    "total": 4,
+    "open": 1,
+    "triaged": 2,
+    "planned": 1
+  },
+  "notes": [
+    "公共问答点踩信号按对话绑定归到 default，已实测 THUMB_DOWN 出现在后台；个人库信号仍不暴露。",
+    "id=3/5 的测试行保留用于演示流转与转评测；生产前应清理。"
+  ]
+}

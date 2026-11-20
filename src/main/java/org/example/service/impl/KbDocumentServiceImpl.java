@@ -15,6 +15,7 @@ import org.example.repository.KnowledgeChunkRepository;
 import org.example.repository.KnowledgeDocumentRepository;
 import org.example.service.KbDocumentService;
 import org.example.service.KbIndexer;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.domain.Page;
@@ -75,6 +76,10 @@ public class KbDocumentServiceImpl implements KbDocumentService {
     private final String redisPrefix;
     private final org.springframework.transaction.support.TransactionTemplate transactionTemplate;
     private final int maxFileSize;
+
+    /** 文档内容/索引变化后使语义缓存版本失效；缓存故障不影响文档操作主链路。 */
+    @Autowired
+    private org.example.service.SemanticCacheService semanticCacheService;
 
     // ---- docs 目录自动同步配置（默认指向旁侧 tech-codex 前端的 docs 根，可用 KB_DOCS_ROOT 覆盖；
     //      触发调度见 KbDocsSyncScheduler：启动对账 + 发布钩子/手动触发，轮询默认关闭） ----
@@ -195,6 +200,7 @@ public class KbDocumentServiceImpl implements KbDocumentService {
         try {
             kbIndexer.indexDocument(managed, managed.getContent());
             log.info("单文档索引重建完成 - id: {}, title: {}", managed.getId(), managed.getTitle());
+            semanticCacheService.invalidate(libraryId);
             auditLogService.record(libraryId, org.example.security.SecurityUtil.currentUsername(),
                     "REINDEX", "DOCUMENT", id, "重建索引：" + managed.getTitle());
         } catch (Exception e) {
@@ -235,6 +241,7 @@ public class KbDocumentServiceImpl implements KbDocumentService {
         try {
             kbIndexer.indexDocument(managed, managed.getContent());
             log.info("文档编辑完成并重建索引 - id: {}, title: {}", managed.getId(), managed.getTitle());
+            semanticCacheService.invalidate(libraryId);
         } catch (Exception e) {
             managed.setStatus(KbDocumentStatus.FAILED);
             documentRepository.save(managed);
@@ -296,6 +303,7 @@ public class KbDocumentServiceImpl implements KbDocumentService {
         doc.setStatus(KbDocumentStatus.PENDING);
         documentRepository.save(doc);
         kbIndexer.indexDocument(doc, content);
+        semanticCacheService.invalidate(libraryId);
         auditLogService.record(libraryId, userId, "UPLOAD", "DOCUMENT", doc.getId(), "上传文档：" + doc.getTitle());
         return KbDocumentView.fromEntity(doc, false);
     }
@@ -326,6 +334,7 @@ public class KbDocumentServiceImpl implements KbDocumentService {
         doc.setStatus(KbDocumentStatus.PENDING);
         documentRepository.save(doc);
         kbIndexer.indexDocument(doc, content);
+        semanticCacheService.invalidate(libraryId);
         auditLogService.record(libraryId, userId, "IMPORT_URL", "DOCUMENT", doc.getId(), "URL 导入：" + url);
         return KbDocumentView.fromEntity(doc, false);
     }
@@ -360,6 +369,7 @@ public class KbDocumentServiceImpl implements KbDocumentService {
             }
         }
         documentRepository.delete(doc);
+        semanticCacheService.invalidate(libraryId);
         docCache.evict(id);
         log.info("知识库文档已删除（按向量ID增量清理） - id: {}, title: {}, 分块数: {}", id, doc.getTitle(), chunkCount);
         auditLogService.record(libraryId, org.example.security.SecurityUtil.currentUsername(),
@@ -490,6 +500,7 @@ public class KbDocumentServiceImpl implements KbDocumentService {
             }
         }
         view.setStatus("DONE");
+        semanticCacheService.invalidate(libraryId);
         log.info("知识库目录导入完成 - files: {}, succeeded: {}, failed: {}", files.size(), view.getSucceeded(), view.getFailed());
     }
 
@@ -798,6 +809,7 @@ public class KbDocumentServiceImpl implements KbDocumentService {
         }
         deleted += legacyDeleted;
         view.setStatus("DONE");
+        semanticCacheService.invalidate(libraryId);
         log.info("docs 目录同步完成 - root: {}, library: {}, 快照: {}, 新增: {}, 更新: {}, 改名: {}, 删除: {} (含存量失效 {}), 跳过: {}, 失败: {}",
                 root, libraryId, current.size(), created, updated, moved, deleted, legacyDeleted, skipped, view.getFailed());
         auditLogService.record(libraryId, actor, "DOCS_SYNC", "DIR", null,
@@ -850,6 +862,7 @@ public class KbDocumentServiceImpl implements KbDocumentService {
         // 重建是全量修复入口，故在此做一次前缀空间与 kb_chunk 引用集的严格对账。
         int swept = sweepOrphanVectors();
         view.setStatus("DONE");
+        semanticCacheService.invalidate(libraryId);
         log.info("知识库索引重建完成 - library: {}, docs: {}, ok: {}, fail: {}, 孤儿向量清理: {}",
                 libraryId, docs.size(), view.getSucceeded(), view.getFailed(), swept);
     }

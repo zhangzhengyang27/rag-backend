@@ -53,6 +53,32 @@ public class UsageStatServiceImpl implements UsageStatService {
             e.setTotalTokens(inputTokens + outputTokens);
             e.setElapsedMs(elapsedMs);
             e.setHitCount(hitCount);
+            e.setCacheHit(false);
+            e.setCacheSavedTokens(0);
+            usageRepository.save(e);
+        } catch (Exception ex) {
+            log.warn("记录聊天用量失败 - userId: {}, err: {}", userId, ex.getMessage());
+        }
+    }
+
+    @Override
+    public void record(String libraryId, String userId, String conversationId, String question, String answer,
+                       int inputTokens, int outputTokens, long elapsedMs, int hitCount,
+                       boolean cacheHit, int cacheSavedTokens) {
+        try {
+            ChatUsageEntity e = new ChatUsageEntity();
+            e.setLibraryId(libraryId);
+            e.setUserId(userId);
+            e.setConversationId(conversationId);
+            e.setQuestion(question);
+            e.setAnswerCharCount(answer == null ? 0 : answer.length());
+            e.setInputTokens(inputTokens);
+            e.setOutputTokens(outputTokens);
+            e.setTotalTokens(inputTokens + outputTokens);
+            e.setElapsedMs(elapsedMs);
+            e.setHitCount(hitCount);
+            e.setCacheHit(cacheHit);
+            e.setCacheSavedTokens(Math.max(0, cacheSavedTokens));
             usageRepository.save(e);
         } catch (Exception ex) {
             log.warn("记录聊天用量失败 - userId: {}, err: {}", userId, ex.getMessage());

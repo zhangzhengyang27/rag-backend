@@ -1,0 +1,88 @@
+{
+  "implementation": "精确 SHA-256 + Redis 向量近似（BGE-small-zh-v15, 512 维, COSINE, FLAT, 阈值 0.92）",
+  "repeat_suite": {
+    "round1": [
+      {
+        "seconds": 8.55,
+        "question": "Promise 的三种状态与链式调用？"
+      },
+      {
+        "seconds": 10.23,
+        "question": "Vue3 的响应式原理是什么？"
+      },
+      {
+        "seconds": 9.23,
+        "question": "HTTP 缓存中的强缓存与协商缓存？"
+      },
+      {
+        "seconds": 13.07,
+        "question": "TypeScript 泛型约束怎么用？"
+      },
+      {
+        "seconds": 11.42,
+        "question": "CSS Flex 布局的常用属性？"
+      },
+      {
+        "seconds": 9.13,
+        "question": "JavaScript 事件循环机制？"
+      },
+      {
+        "seconds": 2.73,
+        "question": "Webpack 的 Tree Shaking 原理？"
+      },
+      {
+        "seconds": 9.6,
+        "question": "MySQL 索引失效的场景？"
+      }
+    ],
+    "round2": [
+      {
+        "seconds": 0.04,
+        "question": "Promise 的三种状态与链式调用？"
+      },
+      {
+        "seconds": 0.02,
+        "question": "Vue3 的响应式原理是什么？"
+      },
+      {
+        "seconds": 0.02,
+        "question": "HTTP 缓存中的强缓存与协商缓存？"
+      },
+      {
+        "seconds": 0.02,
+        "question": "TypeScript 泛型约束怎么用？"
+      },
+      {
+        "seconds": 0.02,
+        "question": "CSS Flex 布局的常用属性？"
+      },
+      {
+        "seconds": 0.02,
+        "question": "JavaScript 事件循环机制？"
+      },
+      {
+        "seconds": 7.74,
+        "question": "Webpack 的 Tree Shaking 原理？"
+      },
+      {
+        "seconds": 0.02,
+        "question": "MySQL 索引失效的场景？"
+      }
+    ]
+  },
+  "repeat_suite_second_pass_fast_hits": 7,
+  "repeat_suite_second_pass_total": 8,
+  "invalidation": {
+    "scenario": "第 1 问 14.13s miss；第 2 问 0.25s exact hit；reindex doc 1106 后同问题 7.48s miss",
+    "reindex_http": 200,
+    "reindex_elapsed_s": 10.91,
+    "default_version": "2 -> 3（脚本打印的个人库版本保持 2；实际以 default 键为准）"
+  },
+  "usage": {
+    "rows": 73,
+    "cache_hits": 12,
+    "hit_rate_pct": 16.44,
+    "saved_tokens": 6926
+  },
+  "gate_note": "全站累计 16.44% < 20%；重复问题第二遍 7/8 命中。冷启动/一次性问题占多数，门禁指标需按稳定流量继续观测。"
+}

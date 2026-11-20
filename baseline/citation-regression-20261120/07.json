@@ -1,0 +1,41 @@
+{
+  "no": 7,
+  "question": "浏览器事件循环中宏任务与微任务？",
+  "expected": [
+    1113
+  ],
+  "sources": 18,
+  "cited": [
+    1,
+    2,
+    3,
+    7,
+    8,
+    9,
+    14,
+    15,
+    17
+  ],
+  "invalid": [],
+  "protocolPass": true,
+  "citedDocIds": [
+    1110,
+    1110,
+    1113,
+    1006,
+    1134,
+    1006,
+    1113,
+    1006,
+    2798
+  ],
+  "matched": [
+    1113,
+    1113
+  ],
+  "pass": true,
+  "reason": "",
+  "elapsedS": 8.34,
+  "bytes": 23839,
+  "answerPreview": "## 浏览器事件循环中的宏任务与微任务\n\n### 一、定义与分类\n\n| 类型 | 包含的 API / 任务 |\n| --- | --- |\n| 宏任务（Macro Task） | `setTimeout`、`setInterval`、I/O、UI 渲染 |\n| 微任务（Micro Task） | `Promise`（`.then/catch/finally`）、`MutationObserver`、（Node 中还有 `process.nextTick`） |\n\n两者的优先级关系为：**同步代码 > 微任务 > 宏任务**，UI 渲染发生在宏任务之间 [9][15][17]。\n\n### 二、执"
+}

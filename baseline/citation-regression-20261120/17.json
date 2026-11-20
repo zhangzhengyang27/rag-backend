@@ -1,0 +1,34 @@
+{
+  "no": 17,
+  "question": "Webpack 的构建流程？",
+  "expected": [
+    1877,
+    1856,
+    1857
+  ],
+  "sources": 17,
+  "cited": [
+    1,
+    2,
+    7,
+    8,
+    13,
+    15
+  ],
+  "invalid": [],
+  "protocolPass": true,
+  "citedDocIds": [
+    1880,
+    345,
+    1875,
+    345,
+    1873,
+    1892
+  ],
+  "matched": [],
+  "pass": false,
+  "reason": "引用文档不匹配 cited=[1880, 345, 1875, 345, 1873, 1892] expected=[1877, 1856, 1857]",
+  "elapsedS": 8.92,
+  "bytes": 23525,
+  "answerPreview": "## Webpack 构建流程总览\n\nWebpack 的构建主流程可以简单划分为 **Init、Make、Seal** 三个阶段 [1]。\n\n### 一、Init 阶段\n\n负责初始化 Webpack 内部的若干插件与状态 [1]。这一阶段的载体是 `Compiler` 对象，它提供生命周期控制与编译管理能力，例如 `run(callback)` 启动单次编译、`watch(watchOptions, handler)` 启动监听模式、`close(callback)` 关闭编译器，以及 `createCompilation(params)` 创建新的 compilation、`createCh"
+}

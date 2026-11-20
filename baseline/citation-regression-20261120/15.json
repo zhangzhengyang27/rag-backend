@@ -1,0 +1,42 @@
+{
+  "no": 15,
+  "question": "浏览器缓存有哪些存储方式？",
+  "expected": [
+    1132,
+    1131
+  ],
+  "sources": 16,
+  "cited": [
+    1,
+    2,
+    3,
+    4,
+    5,
+    7,
+    8,
+    11,
+    12
+  ],
+  "invalid": [],
+  "protocolPass": true,
+  "citedDocIds": [
+    1132,
+    1127,
+    2129,
+    1127,
+    2369,
+    992,
+    1071,
+    1131,
+    551
+  ],
+  "matched": [
+    1132,
+    1131
+  ],
+  "pass": true,
+  "reason": "",
+  "elapsedS": 13.39,
+  "bytes": 21145,
+  "answerPreview": "## 浏览器缓存的存储方式\n\n根据知识库资料，浏览器缓存的存储方式可以从**缓存查找层级**和**数据存储载体**两个角度理解。\n\n### 一、浏览器缓存的查找顺序（按层级的存储位置）\n\n请求资源时，浏览器会按照 **Service Worker → Memory Cache → Disk Cache → Push Cache** 的顺序查找缓存 [1]：\n\n- **Service Worker 缓存**：通过拦截浏览器请求并返回缓存的资源文件实现离线缓存 [4]\n- **Memory Cache（内存缓存）**：存放在内存中的缓存，与标签页生命周期相关\n- **Disk Cache（磁盘缓存"
+}

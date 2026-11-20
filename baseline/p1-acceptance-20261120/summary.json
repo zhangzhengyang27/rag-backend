@@ -1,0 +1,231 @@
+{
+  "stage": "P1（第 1–4 周）",
+  "date": "2026-11-20",
+  "citation": {
+    "protocol_passed": 20,
+    "support_passed": 19,
+    "total": 20,
+    "protocol_rate_pct": 100.0,
+    "support_rate_pct": 95.0,
+    "known_failure": "Q1 HashMap 扩容：检索未召回 doc 312，回答引用 doc 11/5/9"
+  },
+  "mcp": {
+    "passed": 6,
+    "total": 6,
+    "tools": [
+      "search_docs",
+      "fetch_doc",
+      "list_sections"
+    ],
+    "note": "initialize/tools/list 与三工具全部 200；无 token 被 401 拒绝。"
+  },
+  "cache": {
+    "implementation": "精确 SHA-256 + Redis 向量近似（BGE-small-zh-v15, 512 维, COSINE, FLAT, 阈值 0.92）",
+    "repeat_suite": {
+      "round1": [
+        {
+          "seconds": 8.55,
+          "question": "Promise 的三种状态与链式调用？"
+        },
+        {
+          "seconds": 10.23,
+          "question": "Vue3 的响应式原理是什么？"
+        },
+        {
+          "seconds": 9.23,
+          "question": "HTTP 缓存中的强缓存与协商缓存？"
+        },
+        {
+          "seconds": 13.07,
+          "question": "TypeScript 泛型约束怎么用？"
+        },
+        {
+          "seconds": 11.42,
+          "question": "CSS Flex 布局的常用属性？"
+        },
+        {
+          "seconds": 9.13,
+          "question": "JavaScript 事件循环机制？"
+        },
+        {
+          "seconds": 2.73,
+          "question": "Webpack 的 Tree Shaking 原理？"
+        },
+        {
+          "seconds": 9.6,
+          "question": "MySQL 索引失效的场景？"
+        }
+      ],
+      "round2": [
+        {
+          "seconds": 0.04,
+          "question": "Promise 的三种状态与链式调用？"
+        },
+        {
+          "seconds": 0.02,
+          "question": "Vue3 的响应式原理是什么？"
+        },
+        {
+          "seconds": 0.02,
+          "question": "HTTP 缓存中的强缓存与协商缓存？"
+        },
+        {
+          "seconds": 0.02,
+          "question": "TypeScript 泛型约束怎么用？"
+        },
+        {
+          "seconds": 0.02,
+          "question": "CSS Flex 布局的常用属性？"
+        },
+        {
+          "seconds": 0.02,
+          "question": "JavaScript 事件循环机制？"
+        },
+        {
+          "seconds": 7.74,
+          "question": "Webpack 的 Tree Shaking 原理？"
+        },
+        {
+          "seconds": 0.02,
+          "question": "MySQL 索引失效的场景？"
+        }
+      ]
+    },
+    "repeat_suite_second_pass_fast_hits": 7,
+    "repeat_suite_second_pass_total": 8,
+    "invalidation": {
+      "scenario": "第 1 问 14.13s miss；第 2 问 0.25s exact hit；reindex doc 1106 后同问题 7.48s miss",
+      "reindex_http": 200,
+      "reindex_elapsed_s": 10.91,
+      "default_version": "2 -> 3（脚本打印的个人库版本保持 2；实际以 default 键为准）"
+    },
+    "usage": {
+      "rows": 73,
+      "cache_hits": 12,
+      "hit_rate_pct": 16.44,
+      "saved_tokens": 6926
+    },
+    "gate_note": "全站累计 16.44% < 20%；重复问题第二遍 7/8 命中。冷启动/一次性问题占多数，门禁指标需按稳定流量继续观测。"
+  },
+  "gaps": {
+    "migration": "V5__content_gap.sql, applied 2026-11-20 09:24:54",
+    "signals_tested": {
+      "NO_ANSWER": true,
+      "ZERO_CITATION": true,
+      "THUMB_DOWN": true,
+      "FOLLOW_UP": true
+    },
+    "rows": [
+      {
+        "id": 2,
+        "question": "火星基地的核聚变冷却系统怎么设计？",
+        "status": "TRIAGED",
+        "frequency": 3,
+        "signals": "NO_ANSWER:2,THUMB_DOWN:1",
+        "clusterKey": "c2",
+        "evalCaseId": null,
+        "relatedDocCount": 20
+      },
+      {
+        "id": 6,
+        "question": "Webpack 的 Tree Shaking 原理？",
+        "status": "OPEN",
+        "frequency": 1,
+        "signals": "NO_ANSWER:1",
+        "clusterKey": "c6",
+        "evalCaseId": null,
+        "relatedDocCount": 10
+      },
+      {
+        "id": 3,
+        "question": "那具体该怎么设计呢？",
+        "status": "TRIAGED",
+        "frequency": 1,
+        "signals": "FOLLOW_UP:1",
+        "clusterKey": "c3",
+        "evalCaseId": null,
+        "relatedDocCount": 15
+      },
+      {
+        "id": 5,
+        "question": "用一句话解释什么是 HTTP，回答中不要出现任何 [n] 引用标记。",
+        "status": "PLANNED",
+        "frequency": 1,
+        "signals": "ZERO_CITATION:1",
+        "clusterKey": "c5",
+        "evalCaseId": 21,
+        "relatedDocCount": 17
+      }
+    ],
+    "api_checks": [
+      "GET /admin/kb/gaps 200",
+      "GET /top 200",
+      "GET /summary 200",
+      "GET /clusters 200",
+      "GET /export.csv 200",
+      "POST /{id}/status 200",
+      "POST /batch-status 200",
+      "POST /{id}/convert 200 -> eval case 21"
+    ],
+    "summary": {
+      "total": 4,
+      "open": 1,
+      "triaged": 2,
+      "planned": 1
+    },
+    "notes": [
+      "公共问答点踩信号按对话绑定归到 default，已实测 THUMB_DOWN 出现在后台；个人库信号仍不暴露。",
+      "id=3/5 的测试行保留用于演示流转与转评测；生产前应清理。"
+    ]
+  },
+  "baseline": {
+    "rerank_off": {
+      "dir": "baseline/20261119-184414-full",
+      "hit_rate": 0.5,
+      "mrr": 0.8825,
+      "ndcg": 0.5069323104357591,
+      "p95_s": 0.212
+    },
+    "rerank_on": {
+      "dir": "baseline/20261120-083905",
+      "hit_rate": 0.5,
+      "mrr": 0.9166666666666666,
+      "ndcg": 0.6858127539751069,
+      "p95_s": 0.838
+    }
+  },
+  "llms": {
+    "status": "200",
+    "bytes": 19045,
+    "indexed_docs": 4557,
+    "frontend_docs": 4552,
+    "delta": 5
+  },
+  "gates": [
+    {
+      "gate": "llms 覆盖 100%",
+      "status": "通过（端点 200；前端统计 4,552 / DB 4,557，差 5 篇口径待统一）"
+    },
+    {
+      "gate": "MCP 3 工具可用",
+      "status": "通过（6/6 检查）"
+    },
+    {
+      "gate": "引用协议 ≥95%",
+      "status": "通过（20/20）"
+    },
+    {
+      "gate": "引用支撑 ≥19/20",
+      "status": "通过（19/20；Q1 检索召回单独记录）"
+    },
+    {
+      "gate": "缓存命中 ≥20%",
+      "status": "未达标（累计 16.44%；重复问题第二遍 7/8）"
+    },
+    {
+      "gate": "缺口面板上线",
+      "status": "API/构建通过；登录态视觉验收未完成"
+    }
+  ],
+  "overall": "功能闭环完成，门禁 5/6 通过；缓存命中率与缺口页视觉验收是剩余风险。"
+}

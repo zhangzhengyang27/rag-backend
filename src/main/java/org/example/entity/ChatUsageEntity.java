@@ -52,4 +52,10 @@ public class ChatUsageEntity extends BaseEntity {
 
     @Comment("检索命中片段数")
     private Integer hitCount;
+
+    @Comment("是否命中语义缓存")
+    private Boolean cacheHit = false;
+
+    @Comment("缓存命中节省的输出 token 估算")
+    private Integer cacheSavedTokens = 0;
 }

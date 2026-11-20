@@ -1,0 +1,50 @@
+{
+  "mcp_endpoint": "POST /mcp",
+  "checks": [
+    {
+      "check": "initialize",
+      "http": 200,
+      "ok": true,
+      "protocolVersion": "2025-06-18"
+    },
+    {
+      "check": "tools/list",
+      "http": 200,
+      "ok": true,
+      "tools": [
+        "search_docs",
+        "fetch_doc",
+        "list_sections"
+      ]
+    },
+    {
+      "check": "call:search_docs",
+      "http": 200,
+      "ok": true,
+      "bytes": 1165,
+      "sample": "[{\"citationId\":\"1\",\"docId\":1301,\"title\":\"入门与实例\",\"filePath\":\"04-前端/05-vue2/01-Vue2文档/01-入门基础/01-入门与实例.md\",\"headingPath\":\"入门与实例 > 核心特点 > 响应式系统\",\"anchor\":\"响应式系统\",\""
+    },
+    {
+      "check": "call:fetch_doc",
+      "http": 200,
+      "ok": true,
+      "bytes": 9195,
+      "sample": "{\"content\":\"---\\ntitle: HTML5概览\\ndescription: \\\"本模块用于系统整理 HTML（含 HTML5 相关能力）与常用浏览器 API 的学习笔记，并以 MDN（mozilla）作为主要权威参考来源，方便你在\\\\\\\"概念理解 → 示例验证 → 规范查阅\\\\\\\"之间快速切换。\\\"\\n"
+    },
+    {
+      "check": "call:list_sections",
+      "http": 200,
+      "ok": true,
+      "bytes": 3089,
+      "sample": "{\"title\":\"HTML5概览\",\"filePath\":\"04-前端/02-HTML5/00-HTML5概览.md\",\"docId\":972,\"sections\":[{\"chunkIndex\":0,\"headingPath\":\"HTML5概览\",\"heading\":\"HTML5概览\",\"anchor\":\"HTML5"
+    },
+    {
+      "check": "no-token rejected",
+      "http": 401,
+      "ok": true,
+      "body": null
+    }
+  ],
+  "passed": 6,
+  "total": 6
+}

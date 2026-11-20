@@ -1,0 +1,49 @@
+{
+  "no": 12,
+  "question": "Flex 布局的常用属性？",
+  "expected": [
+    879,
+    880,
+    881
+  ],
+  "sources": 15,
+  "cited": [
+    1,
+    2,
+    3,
+    5,
+    7,
+    8,
+    11,
+    13,
+    14,
+    15
+  ],
+  "invalid": [],
+  "protocolPass": true,
+  "citedDocIds": [
+    881,
+    879,
+    857,
+    859,
+    922,
+    4385,
+    880,
+    879,
+    879,
+    880
+  ],
+  "matched": [
+    881,
+    879,
+    880,
+    879,
+    879,
+    880
+  ],
+  "pass": true,
+  "reason": "",
+  "elapsedS": 7.54,
+  "bytes": 21401,
+  "answerPreview": "## Flex 布局的常用属性\n\nFlex 布局的属性分为**容器属性**与**项目属性**两层，容器属性控制排列与对齐，项目属性控制伸缩与覆盖[2]。\n\n### 一、容器属性（设置在 `display: flex` 的元素上）\n\n- **`display: flex`**：开启 Flex 布局，容器创建独立的 FFC 格式化上下文，此时子元素的 `float` 和 `vertical-align` 失效，外边距不折叠[2]。\n- **`flex-direction`**：定义主轴方向，主轴方向决定 `justify-content` 和 `align-items` 的实际作用方向[2]。\n-"
+}

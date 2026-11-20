@@ -63,6 +63,15 @@ public class KbLibraryTools {
         BINDINGS.put(conversationId, new Binding(List.copyOf(libraryIds), System.currentTimeMillis() + BINDING_TTL_MILLIS));
     }
 
+    /**
+     * 读取对话当前绑定的空间集合，供反馈等旁路把信号归到实际检索空间；
+     * 绑定不存在/已过期时返回空列表，调用方自行回落。
+     */
+    public static List<String> librariesOf(String conversationId) {
+        Binding binding = bindingOf(conversationId);
+        return binding == null ? List.of() : binding.libraryIds();
+    }
+
     /** 对话结束/异常时解除绑定（可选调用；TTL 过期兜底覆盖所有路径）。 */
     public static void unbind(String conversationId) {
         if (conversationId != null) {

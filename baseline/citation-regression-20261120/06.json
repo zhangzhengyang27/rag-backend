@@ -1,0 +1,39 @@
+{
+  "no": 6,
+  "question": "CSS 盒模型有哪几种？",
+  "expected": [
+    855
+  ],
+  "sources": 14,
+  "cited": [
+    1,
+    2,
+    4,
+    5,
+    6,
+    13,
+    14
+  ],
+  "invalid": [],
+  "protocolPass": true,
+  "citedDocIds": [
+    855,
+    855,
+    855,
+    851,
+    851,
+    855,
+    848
+  ],
+  "matched": [
+    855,
+    855,
+    855,
+    855
+  ],
+  "pass": true,
+  "reason": "",
+  "elapsedS": 6.07,
+  "bytes": 12673,
+  "answerPreview": "## CSS 盒模型的两种类型\n\nCSS 提供了**两种盒模型计算方式**，通过 `box-sizing` 属性控制切换 [1][13]：\n\n- **标准盒模型（`content-box`）**：由 W3C 标准定义，元素的 `width`、`height` 只计算内容区\n- **IE 盒模型（`border-box`）**：元素的 `width`、`height` 包含内容区、内边距（padding）与边框（border）\n\n### 补充说明\n\n- 盒模型结构由 **content / padding / border / margin** 四部分组成 [14]\n- 盒模型是网页布局的基石，"
+}

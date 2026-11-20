@@ -1,0 +1,41 @@
+{
+  "no": 3,
+  "question": "Spring Boot 自动配置原理？",
+  "expected": [
+    91
+  ],
+  "sources": 16,
+  "cited": [
+    1,
+    2,
+    3,
+    11,
+    12,
+    13,
+    14,
+    15,
+    16
+  ],
+  "invalid": [],
+  "protocolPass": true,
+  "citedDocIds": [
+    91,
+    110,
+    110,
+    109,
+    109,
+    109,
+    110,
+    110,
+    91
+  ],
+  "matched": [
+    91,
+    91
+  ],
+  "pass": true,
+  "reason": "",
+  "elapsedS": 8.92,
+  "bytes": 27911,
+  "answerPreview": "## Spring Boot 自动配置原理\n\n### 一、核心机制总览\n\n自动配置是 Spring Boot 最核心的特性，其本质是通过\"依赖驱动 + 条件装配\"在启动时自动向 IoC 容器注册所需的 Bean [1][2]。关键构成要素包括：\n\n- **Starter**：统一依赖管理，简化构建配置 [2]\n- **@EnableAutoConfiguration**：自动配置的入口注解 [2]\n- **SpringFactoriesLoader / ImportCandidates**：工厂加载机制，提供扩展点支持 [2][13]\n- **条件注解**：灵活控制 Bean 的创建时机 [2"
+}

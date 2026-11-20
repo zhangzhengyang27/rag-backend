@@ -1,0 +1,37 @@
+{
+  "no": 18,
+  "question": "Vite 为什么启动快？",
+  "expected": [
+    1907,
+    1912,
+    1897,
+    522
+  ],
+  "sources": 15,
+  "cited": [
+    7,
+    9,
+    10,
+    11,
+    12,
+    14
+  ],
+  "invalid": [],
+  "protocolPass": true,
+  "citedDocIds": [
+    2619,
+    2619,
+    1912,
+    1158,
+    83,
+    520
+  ],
+  "matched": [
+    1912
+  ],
+  "pass": true,
+  "reason": "",
+  "elapsedS": 9.94,
+  "bytes": 16257,
+  "answerPreview": "## Vite 启动快的核心原因\n\n### 一、依赖预构建：用 esbuild 提前把依赖转成 ESM\n\nVite 首次启动时，会用 esbuild 把 `node_modules` 中的依赖预构建为 ESM [10]。这一步同时完成了两件事：\n\n- 将 CommonJS / UMD 格式的依赖转换成 ESM，解决浏览器原生 ESM 无法直接加载这类模块的问题 [11]；\n- 由于 esbuild 本身是极快的编译、执行器（Go 实现，常用于快速执行 TypeScript），预构建这一步的耗时被压得很低 [14]。\n\n### 二、开发期不再整包打包\n\n传统打包器在启动时需要遍历并打包整个应用（"
+}

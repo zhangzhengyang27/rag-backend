@@ -5,6 +5,7 @@ import dev.langchain4j.model.chat.ChatModel;
 import lombok.extern.slf4j.Slf4j;
 import org.example.aiservice.KbAssistant;
 import org.example.common.CircuitBreaker;
+import org.example.common.CitationGuard;
 import org.example.common.RateLimiter;
 import org.example.common.ThinkingStripper;
 import org.example.common.TokenEstimator;
@@ -19,6 +20,7 @@ import org.example.service.UsageStatService;
 import org.example.vo.ChatEvent;
 import org.example.vo.ChatHistoryVo;
 import org.example.vo.ConversationVo;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.domain.Page;
@@ -62,6 +64,14 @@ public class KbChatServiceImpl implements KbChatService {
     private final ContentGuard contentGuard;
     private final UsageStatService usageStatService;
     private final int messageMaxLength;
+
+    /** 语义缓存：字段注入避免把缓存依赖扩散到既有构造函数与测试；缓存自身失败会降级 miss。 */
+    @Autowired
+    private org.example.service.SemanticCacheService semanticCacheService;
+
+    /** 内容缺口：旁路采集负向信号，写入失败不影响问答。 */
+    @Autowired
+    private org.example.service.ContentGapService contentGapService;
 
     /** 文档内问答整文档回退的正文上限（字符）：超长文档截断注入，防撑爆上下文。 */
     private static final int DOC_FALLBACK_MAX_CHARS = 12_000;
@@ -184,6 +194,18 @@ public class KbChatServiceImpl implements KbChatService {
                 userId, cid, pathFilter == null ? "-" : pathFilter, message);
         StringBuilder buffer = new StringBuilder();
         long startNanos = System.nanoTime();
+        // 缓存上下文要包含检索范围/文档锁定/分类，避免把不同范围的回答互相复用
+        final String cacheContext = String.join(",", scopeLibraries)
+                + "|" + (pathFilter == null ? "-" : pathFilter)
+                + "|" + (categoryFilter == null ? "-" : categoryFilter)
+                + "|k=" + runtimeConfig.getInt("retrieval.final-top-k");
+        // 语义缓存按“实际文档空间”隔离，而不是按登录用户的个人库：public 检索读的是 default，
+        // 若用个人库做失效键，管理员重建 default 文档后公共问答缓存永远不会失效。
+        // 多空间（scope=all）无法用单版本键表达失效，直接跳过缓存，避免脏复用。
+        final String cacheLibraryId = scopeLibraries.size() == 1 ? scopeLibraries.get(0) : null;
+        // 缺口归到公共库，个人库问题不会进入后台；public/所有范围含 default 时统一落 default
+        final String gapLibraryId = scopeLibraries.contains(kbConfig.getPublicLibrary())
+                ? kbConfig.getPublicLibrary() : libraryId;
 
         // 意图路由：非知识类问题（寒暄/简单指令/感谢等）无需检索知识库，直接普通对话，跳过检索与溯源。
         // 文档内问答（docScope 存在）按定义就是知识问题，跳过闲聊路由，保证始终带文档上下文回答。
@@ -211,6 +233,36 @@ public class KbChatServiceImpl implements KbChatService {
                 circuitBreaker.recordFailure();
                 log.error("知识问答失败 - userId: {}, conversationId: {}", userId, cid, error);
             });
+        }
+
+        // 语义缓存命中：直接回放回答与 sources，跳过查询改写/检索/LLM；仍需落历史与用量，保证会话连续。
+        java.util.Optional<org.example.service.SemanticCacheService.Hit> cached =
+                cacheLibraryId == null
+                        ? java.util.Optional.empty()
+                        : semanticCacheService.lookup(message, cacheLibraryId, cacheContext);
+        if (cached.isPresent()) {
+            org.example.service.SemanticCacheService.Hit hit = cached.get();
+            List<KbChunkHit> cachedSources = hit.sources();
+            markCitationIds(cachedSources);
+            String cachedSourcesJson = toJson(cachedSources);
+            log.info("语义缓存命中 - userId: {}, similarity: {}", userId, hit.similarity());
+            return Flux.concat(
+                    Flux.just(ChatEvent.conversation(cid).toSse()),
+                    Flux.just(ChatEvent.phase("语义缓存命中，正在回放…").toSse()),
+                    Flux.just(ChatEvent.sources(cachedSourcesJson).toSse()),
+                    Flux.just(ChatEvent.token(hit.answer()).toSse()),
+                    Flux.just(ChatEvent.done("完成").toSse())
+            ).concatWith(Flux.defer(() -> {
+                saveHistory(userId, cid, message, hit.answer(), libraryId);
+                recordUsage(libraryId, userId, cid, message, hit.answer(), "", "", cachedSources.size(),
+                        startNanos, true, TokenEstimator.estimate(hit.answer()));
+                scheduleGapSignals(gapLibraryId, userId, cid, message, cachedSources, hit.answer(), false, false, false);
+                return Flux.empty();
+            })).doOnComplete(() -> circuitBreaker.recordSuccess())
+                    .doOnError(error -> {
+                        circuitBreaker.recordFailure();
+                        log.error("缓存回放失败 - userId: {}, conversationId: {}", userId, cid, error);
+                    });
         }
 
         // 检索前用 DeepSeek 做查询改写（1~3 条子查询，提升召回质量），失败/超时降级为原 query
@@ -282,6 +334,7 @@ public class KbChatServiceImpl implements KbChatService {
         if (!relevant && !libraryMetaQuestion) {
             log.info("相关度判定：知识库无足够相关内容 - userId: {}, topScore: {}", userId, String.format("%.3f", topScore));
             final int hitCount = sources.size();
+            final java.util.List<KbChunkHit> gapSources = java.util.List.copyOf(sources);
             return Flux.concat(
                     Flux.just(ChatEvent.conversation(cid).toSse()),
                     Flux.just(ChatEvent.sources(sourcesJson).toSse()),
@@ -291,6 +344,7 @@ public class KbChatServiceImpl implements KbChatService {
                 // 拒答分支不产生实质回答，仍保留用户问题与空答占位，便于会话延续
                 saveHistory(userId, cid, message, "", libraryId);
                 recordUsage(libraryId, userId, cid, message, "", "", "", hitCount, startNanos);
+                scheduleGapSignals(gapLibraryId, userId, cid, message, gapSources, "", false, true, false);
                 return Flux.empty();
             }))
             .doOnComplete(() -> circuitBreaker.recordSuccess())
@@ -310,6 +364,8 @@ public class KbChatServiceImpl implements KbChatService {
         }
         final String promptSourcesContext = sourcesContext;
         final int hitCount = sources.size();
+        final java.util.List<KbChunkHit> cacheSources = sources;
+        final CitationGuard citationGuard = new CitationGuard(hitCount);
         return Flux.concat(
                 Flux.just(ChatEvent.conversation(cid).toSse()),
                 Flux.just(ChatEvent.phase("正在检索知识库并组织回答…").toSse()),
@@ -317,14 +373,28 @@ public class KbChatServiceImpl implements KbChatService {
                 ThinkingStripper.stripPrefix(kbAssistant.answer(userId, cid, history, message, sourcesContext)).map(text -> {
                     // O2：输出脱敏（SSE 与入库同源安全）
                     String safe = contentGuard.sanitize(text);
-                    buffer.append(safe);
-                    return ChatEvent.token(safe).toSse();
+                    String clean = citationGuard.filter(safe);
+                    buffer.append(clean);
+                    return ChatEvent.token(clean).toSse();
+                }),
+                Flux.defer(() -> {
+                    // 流结束才把引用缓存尾部的未闭合文本吐出，避免吞正文
+                    String tail = citationGuard.flush();
+                    if (tail.isEmpty()) return Flux.<ServerSentEvent<String>>empty();
+                    buffer.append(tail);
+                    return Flux.just(ChatEvent.token(tail).toSse());
                 }),
                 Flux.just(ChatEvent.done("完成").toSse())
         ).concatWith(Flux.defer(() -> {
                     // 在发出 done 前同步落库，确保完成时会话列表/历史立即可查（避免异步竞态导致新建会话不即时出现）
                     saveHistory(userId, cid, message, buffer.toString(), libraryId);
                     recordUsage(libraryId, userId, cid, message, buffer.toString(), history, promptSourcesContext, hitCount, startNanos);
+                    scheduleGapSignals(gapLibraryId, userId, cid, message, cacheSources, buffer.toString(),
+                            !history.isBlank(), false, false);
+                    // 缓存写入放在回答完成后，避免把流式中间态写进缓存；失败只降级 miss
+                    if (cacheLibraryId != null) {
+                        semanticCacheService.put(message, cacheLibraryId, cacheContext, buffer.toString(), cacheSources);
+                    }
                     return Flux.empty();
                 }))
                 .doOnComplete(() -> circuitBreaker.recordSuccess())
@@ -559,12 +629,82 @@ public class KbChatServiceImpl implements KbChatService {
     }
 
     /**
+     * 异步采集缺口信号：未答、零引用、追问三类由问答链路产生，点踩由反馈入口单独写入。
+     *
+     * @param hasHistory 是否已有对话上下文（追问信号只在多轮里采集）
+     * @param refused    拒答分支直接记 NO_ANSWER
+     * @param cached     缓存回放只检查引用，不再重复判未答
+     */
+    private void scheduleGapSignals(String libraryId, String userId, String conversationId, String question,
+                                    java.util.List<KbChunkHit> sources, String answer,
+                                    boolean hasHistory, boolean refused, boolean cached) {
+        if (contentGapService == null) return;
+        try {
+            chatHistoryExecutor.execute(() -> {
+                try {
+                    java.util.List<Long> docIds = sources == null ? java.util.List.of() :
+                            sources.stream().map(KbChunkHit::getDocId).filter(java.util.Objects::nonNull).distinct().toList();
+                    int citationCount = sources == null ? 0 : sources.size();
+                    if (refused || citationCount == 0) {
+                        contentGapService.recordSignal(libraryId, userId, conversationId, question,
+                                "NO_ANSWER", docIds, null, refused ? "相关度拒答" : "检索 0 命中");
+                    }
+                    if (!refused && !hasValidCitation(answer, citationCount)) {
+                        contentGapService.recordSignal(libraryId, userId, conversationId, question,
+                                "ZERO_CITATION", docIds, null, "回答无有效 [n] 引用");
+                    }
+                    // 追问只在已有上下文的短问/承接词上采集；首轮问题不产生该信号
+                    if (!cached && hasHistory && looksLikeFollowUp(question)) {
+                        contentGapService.recordSignal(libraryId, userId, conversationId, question,
+                                "FOLLOW_UP", docIds, null, "多轮追问");
+                    }
+                } catch (Exception e) {
+                    // 旁路失败只吞掉，不向 SSE 线程抛出
+                }
+            });
+        } catch (Exception ignored) {
+            // 线程池拒绝时放弃该次信号，不影响回答
+        }
+    }
+
+    /** 校验回答中的 [n] 是否至少有一个落在本次 sources 范围。 */
+    private boolean hasValidCitation(String answer, int citationCount) {
+        if (answer == null || citationCount <= 0) return false;
+        java.util.regex.Matcher m = java.util.regex.Pattern.compile("\\[([1-9][0-9]*)\\]").matcher(answer);
+        while (m.find()) {
+            try {
+                int n = Integer.parseInt(m.group(1));
+                if (n >= 1 && n <= citationCount) return true;
+            } catch (NumberFormatException ignored) {
+                // 超长数字视为无效引用
+            }
+        }
+        return false;
+    }
+
+    /** 短问/承接词视为追问；这是可解释的保守启发式，不做语义模型推断。 */
+    private boolean looksLikeFollowUp(String question) {
+        if (question == null) return false;
+        String q = question.trim();
+        if (q.length() <= 12) return true;
+        return q.matches("^(那|那么|为什么|具体|还有|再|怎么|如何|可以|这个|继续|它|这).*")
+                || q.endsWith("呢") || q.contains("没懂") || q.contains("详细");
+    }
+
+    /**
      * O1 用量埋点：估算输入/输出 token，经聊天历史线程池异步落库（旁路写入，失败仅记日志）。
      * 输入 token = 问题 + 历史 + 证据上下文；输出 token = 回答文本估算。
      * libraryId 由调用方在请求线程解析后传入——本方法在 SSE 流线程执行，读不到 SecurityContext。
      */
     private void recordUsage(String libraryId, String userId, String conversationId, String question, String answer,
                              String history, String sourcesContext, int hitCount, long startNanos) {
+        recordUsage(libraryId, userId, conversationId, question, answer, history, sourcesContext, hitCount, startNanos,
+                false, 0);
+    }
+
+    private void recordUsage(String libraryId, String userId, String conversationId, String question, String answer,
+                             String history, String sourcesContext, int hitCount, long startNanos,
+                             boolean cacheHit, int cacheSavedTokens) {
         try {
             int inputTokens = TokenEstimator.estimate(question)
                     + TokenEstimator.estimate(history)
@@ -573,7 +713,7 @@ public class KbChatServiceImpl implements KbChatService {
             long elapsedMs = (System.nanoTime() - startNanos) / 1_000_000;
             chatHistoryExecutor.execute(() ->
                     usageStatService.record(libraryId, userId, conversationId, question, answer,
-                            inputTokens, outputTokens, elapsedMs, hitCount));
+                            inputTokens, outputTokens, elapsedMs, hitCount, cacheHit, cacheSavedTokens));
         } catch (Exception e) {
             log.warn("记录聊天用量失败 - userId: {}, err: {}", userId, e.getMessage());
         }

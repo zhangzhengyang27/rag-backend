@@ -26,6 +26,10 @@ public class KbFeedbackServiceImpl implements KbFeedbackService {
     @Autowired
     private KbChatFeedbackRepository feedbackRepository;
 
+    /** 内容缺口旁路：点踩是四类信号之一，写入失败不影响反馈提交。 */
+    @Autowired
+    private org.example.service.ContentGapService contentGapService;
+
     @Override
     public Map<String, Object> submit(String userId, String conversationId, String rating,
                                       String question, String answer, String comment) {
@@ -42,6 +46,17 @@ public class KbFeedbackServiceImpl implements KbFeedbackService {
         entity.setAnswer(trimTo(answer, MAX_ANSWER));
         entity.setComment(trimTo(comment, MAX_COMMENT));
         feedbackRepository.save(entity);
+        if ("DOWN".equals(normalized)) {
+            // 反馈落在登录用户的个人库，但公共问答的缺口应归到 default 才能在后台运营；
+            // 对话绑定由问答请求线程写入，反馈紧随回答提交，通常仍在 15 分钟 TTL 内。
+            java.util.List<String> bound = org.example.tools.KbLibraryTools.librariesOf(entity.getConversationId());
+            String gapLibrary = bound.contains(org.example.library.KbLibrary.DEFAULT_LIBRARY)
+                    ? org.example.library.KbLibrary.DEFAULT_LIBRARY
+                    : (bound.isEmpty() ? entity.getLibraryId() : bound.get(0));
+            contentGapService.recordSignal(gapLibrary, userId, entity.getConversationId(),
+                    entity.getQuestion(), "THUMB_DOWN", java.util.List.of(), entity.getId(),
+                    comment == null ? "用户点踩" : comment);
+        }
         log.info("问答反馈已提交 - user: {}, conversation: {}, rating: {}, comment: {}",
                 userId, entity.getConversationId(), normalized,
                 comment == null ? "-" : "有");

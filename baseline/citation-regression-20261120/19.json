@@ -1,0 +1,30 @@
+{
+  "no": 19,
+  "question": "Vue3 为什么用 Proxy 替代 Object.defineProperty？",
+  "expected": [
+    1422,
+    1433,
+    1440
+  ],
+  "sources": 13,
+  "cited": [
+    7,
+    8,
+    11
+  ],
+  "invalid": [],
+  "protocolPass": true,
+  "citedDocIds": [
+    1422,
+    1157,
+    1317
+  ],
+  "matched": [
+    1422
+  ],
+  "pass": true,
+  "reason": "",
+  "elapsedS": 9.93,
+  "bytes": 21641,
+  "answerPreview": "## Vue 3 用 Proxy 替代 Object.defineProperty 的原因\n\nVue 3 使用 ES6 Proxy 实现响应式系统，替代了 Vue 2 的 `Object.defineProperty` [7][8]。核心原因在于 `Object.defineProperty` 存在一系列无法绕开的底层限制，而 Proxy 能够从机制层面解决这些问题。\n\n### 一、原生支持新增 / 删除属性\n\n`Object.defineProperty` 只能在初始化时对已存在的属性逐个做数据劫持，因此无法感知后续的**新增属性**和**删除属性**，Vue 2 只能额外提供 `Vue.s"
+}

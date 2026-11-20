@@ -29,6 +29,11 @@ public interface UsageStatService {
     void record(String libraryId, String userId, String conversationId, String question, String answer,
                 int inputTokens, int outputTokens, long elapsedMs, int hitCount);
 
+    /** 带缓存标记的用量记录；旧调用方走上面的默认语义（cacheHit=false）。 */
+    void record(String libraryId, String userId, String conversationId, String question, String answer,
+                int inputTokens, int outputTokens, long elapsedMs, int hitCount,
+                boolean cacheHit, int cacheSavedTokens);
+
     /** 近 N 天用量汇总 + 按日趋势（按空间隔离）。 */
     UsageSummaryView summary(String libraryId, int days);
 

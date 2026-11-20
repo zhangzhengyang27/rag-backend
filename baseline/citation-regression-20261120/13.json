@@ -1,0 +1,39 @@
+{
+  "no": 13,
+  "question": "Grid 布局如何定义行列？",
+  "expected": [
+    882,
+    883,
+    884
+  ],
+  "sources": 16,
+  "cited": [
+    4,
+    7,
+    11,
+    12,
+    13,
+    14,
+    15
+  ],
+  "invalid": [],
+  "protocolPass": true,
+  "citedDocIds": [
+    888,
+    876,
+    884,
+    999,
+    883,
+    853,
+    888
+  ],
+  "matched": [
+    884,
+    883
+  ],
+  "pass": true,
+  "reason": "",
+  "elapsedS": 8.09,
+  "bytes": 20605,
+  "answerPreview": "## Grid 布局中定义行列的方式\n\nGrid 是二维布局模式，同时控制行和列，通过**轨道定义**和**区域命名**实现复杂的对齐与尺寸协商，擅长处理整体页面框架与需要精确行列控制的场景 [7]。\n\n### 核心属性\n\n行和列分别由 `grid-template-rows` 和 `grid-template-columns` 定义，二者配合使用；`grid-template-areas` 用于区域命名，`grid-template` 是这三个属性的简写 [13]。\n\n```css\n.container {\n  display: grid;\n  grid-template-columns: "
+}

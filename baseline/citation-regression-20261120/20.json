@@ -1,0 +1,35 @@
+{
+  "no": 20,
+  "question": "HTTP 与 HTTPS 的核心区别？",
+  "expected": [
+    1125,
+    2415,
+    3558
+  ],
+  "sources": 15,
+  "cited": [
+    7,
+    8,
+    12,
+    13,
+    14
+  ],
+  "invalid": [],
+  "protocolPass": true,
+  "citedDocIds": [
+    2415,
+    3558,
+    3551,
+    620,
+    20
+  ],
+  "matched": [
+    2415,
+    3558
+  ],
+  "pass": true,
+  "reason": "",
+  "elapsedS": 9.98,
+  "bytes": 25272,
+  "answerPreview": "## HTTP 与 HTTPS 的核心区别\n\n### 一句话概括\n\nHTTPS 本质上是 **HTTP + TLS**：在传输层与应用层之间插入安全层，其余 HTTP 语义（方法、状态码、报文结构）保持不变[12][13]。\n\n### 核心差异对比\n\n- **传输方式**\n  - HTTP 协议本身是明文传输，数据在网络中以原始形式传输[12][13]。\n  - HTTPS 在 HTTP 层下加入 SSL/TLS 加密层，数据经加密后再传输[13]。\n\n- **安全风险**\n  - HTTP 面临窃听、篡改和钓鱼三大风险[12]。\n  - HTTPS 通过加密与证书校验规避上述风险。\n\n- *"
+}
