@@ -164,6 +164,10 @@ public class KbIndexer {
                 // 归并更新：清理旧分块/旧 section（旧 Redis 向量已在上方删除）
                 chunkRepository.deleteByDocId(doc.getId());
                 sectionRepository.deleteByDocId(doc.getId());
+                // 先 flush 删除，再插入同 (doc_id, heading_ordinal) 的新 section；
+                // 否则 Hibernate 可能把 insert 排在 delete 前，触发唯一键冲突。
+                chunkRepository.flush();
+                sectionRepository.flush();
             }
             // 父块先落库拿 ID，再给子块回填 parent_id；父块不写向量索引。
             List<KnowledgeSectionEntity> sectionEntities = new ArrayList<>(sections.size());

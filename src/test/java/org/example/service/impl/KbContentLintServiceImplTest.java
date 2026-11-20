@@ -50,6 +50,36 @@ class KbContentLintServiceImplTest {
     }
 
     @Test
+    void directoryLinksWithOrWithoutSlashAreNotBrokenWhenDirExists() {
+        when(documentRepository.findAllByLibraryId("default")).thenReturn(List.of(
+                doc(1L, "A", "a/one.md",
+                        "[slash](../b/) [noSlash](../b) [file](../b/x.md) [missing](../b/nope.md)"),
+                doc(2L, "B", "b/x.md", "正文")));
+
+        var report = service.lint("default", 200);
+
+        // 目录链接（带/不带斜杠）与真实文件链接都应有效；只有不存在的文件才算断链。
+        assertThat(report.getLinkCount()).isEqualTo(4);
+        assertThat(report.getBrokenLinkCount()).isEqualTo(1);
+        assertThat(report.getIssues()).anySatisfy(i -> {
+            assertThat(i.getType()).isEqualTo("BROKEN_LINK");
+            assertThat(i.getDetail()).contains("../b/nope.md");
+        });
+    }
+
+    @Test
+    void omittedMdExtensionWorksWhenFilenameContainsDot() {
+        when(documentRepository.findAllByLibraryId("default")).thenReturn(List.of(
+                doc(1L, "A", "a/one.md", "[next](../b/12-Next.jsAppRouter数据加载)"),
+                doc(2L, "B", "b/12-Next.jsAppRouter数据加载.md", "正文")));
+
+        var report = service.lint("default", 200);
+
+        assertThat(report.getLinkCount()).isEqualTo(1);
+        assertThat(report.getBrokenLinkCount()).isZero();
+    }
+
+    @Test
     void duplicateTitlesCountPerDocument() {
         when(documentRepository.findAllByLibraryId("default")).thenReturn(List.of(
                 doc(1L, "系统架构", "a/one.md", "x"),

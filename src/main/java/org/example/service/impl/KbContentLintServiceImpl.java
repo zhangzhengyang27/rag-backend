@@ -211,7 +211,7 @@ public class KbContentLintServiceImpl implements KbContentLintService {
         String key = normalize(resolved.toString());
         if (clean.endsWith("/") || !key.contains(".")) {
             // 目录/无扩展名链接按文档站习惯找 index.md 或同名 .md，二者都不存在才算断链。
-            return key + (clean.endsWith("/") ? "index.md" : ".md");
+            return key + (clean.endsWith("/") ? "/index.md" : ".md");
         }
         return key;
     }
@@ -219,6 +219,11 @@ public class KbContentLintServiceImpl implements KbContentLintService {
     /** 目标存在判定：兼容“目录链接解析成同名 .md”与真实目录 index.md 两种落盘习惯。 */
     private static boolean exists(Map<String, KnowledgeDocumentEntity> byPath, Set<String> dirs, String target) {
         if (byPath.containsKey(target)) {
+            return true;
+        }
+        // 站点链接常省略 .md，而文件名本身可能带点（如 12-Next.jsAppRouter数据加载、
+        // 03-concurrent.futures），不能只用“是否含点”判断扩展名，需再试一次补 .md。
+        if (byPath.containsKey(target + ".md")) {
             return true;
         }
         if (!target.endsWith(".md")) {
@@ -229,7 +234,12 @@ public class KbContentLintServiceImpl implements KbContentLintService {
             return true;
         }
         // 目录链接：目录下只要有文档就算有效，不强制要求 index.md。
-        return dirs.contains(withoutExt);
+        // 注意 index.md 是目录链接的“落盘表示”，要回退到父目录再判断；
+        // 否则 ../03-微服务架构/ 会被误判成断链（目录其实存在，只是没有 index.md）。
+        String dir = withoutExt.endsWith("/index")
+                ? withoutExt.substring(0, withoutExt.length() - "/index".length())
+                : withoutExt;
+        return dirs.contains(dir);
     }
 
     private static String normalize(String path) {
