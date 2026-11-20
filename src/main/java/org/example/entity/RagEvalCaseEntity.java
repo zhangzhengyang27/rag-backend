@@ -34,6 +34,11 @@ public class RagEvalCaseEntity extends BaseEntity {
     @Column(columnDefinition = "TEXT")
     private String note;
 
+    /** 用例类型：RETRIEVAL=检索召回；ANSWER_FORMAT=回答格式/引用等非检索用例。 */
+    @Comment("用例类型：RETRIEVAL / ANSWER_FORMAT")
+    @Column(length = 32)
+    private String caseType = "RETRIEVAL";
+
     @Comment("创建人")
     @Column(length = 64)
     private String createdBy;

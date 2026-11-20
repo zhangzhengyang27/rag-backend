@@ -18,8 +18,14 @@ public interface ChatUsageRepository extends BaseRepository<ChatUsageEntity> {
     /** 查询某空间指定时间之后的全部用量记录（汇总/趋势用，数据量小，Java 侧聚合）。 */
     List<ChatUsageEntity> findByLibraryIdAndCreatedDateAfterOrderByIdAsc(String libraryId, Date from);
 
+    /** 查询全部空间指定时间之后的全部用量记录（管理端跨空间汇总）。 */
+    List<ChatUsageEntity> findByCreatedDateAfterOrderByIdAsc(Date from);
+
     /** 某空间用量记录按时间倒序分页（明细分页用）。 */
     Page<ChatUsageEntity> findByLibraryIdOrderByIdDesc(String libraryId, Pageable page);
+
+    /** 全部空间用量记录按时间倒序分页（管理端跨空间明细）。 */
+    Page<ChatUsageEntity> findAllByOrderByIdDesc(Pageable page);
 
     /**
      * 按用户聚合用量（用户维度 Top 排行）：返回行结构
@@ -30,6 +36,13 @@ public interface ChatUsageRepository extends BaseRepository<ChatUsageEntity> {
             "from ChatUsageEntity u where u.libraryId = :libraryId and u.createdDate >= :from " +
             "group by u.userId order by count(u) desc")
     List<Object[]> aggregateByUser(@Param("libraryId") String libraryId, @Param("from") Date from);
+
+    /** 全部空间按用户聚合用量（管理端跨空间 Top 用户）。 */
+    @Query("select u.userId, count(u), sum(coalesce(u.totalTokens, 0)), avg(coalesce(u.elapsedMs, 0)), " +
+            "avg(coalesce(u.hitCount, 0)), max(u.createdDate) " +
+            "from ChatUsageEntity u where u.createdDate >= :from " +
+            "group by u.userId order by count(u) desc")
+    List<Object[]> aggregateAllByUser(@Param("from") Date from);
 
     /** 保留期清理：删除创建时间早于截止时间的用量记录（bulk delete，不逐条加载实体）。 */
     @Modifying

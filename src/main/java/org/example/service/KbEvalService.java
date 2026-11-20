@@ -58,6 +58,10 @@ public interface KbEvalService {
     /** 新增一个评测用例（含期望命中文档 id，供 NDCG 排序质量评估），返回用例 id。 */
     Long addCase(String question, String expectedKeywords, String expectedDocIds, String note, String createdBy);
 
+    /** 新增评测用例并指定类型：RETRIEVAL 进入 HitRate；ANSWER_FORMAT 不参与检索指标。 */
+    Long addCase(String question, String expectedKeywords, String expectedDocIds, String note,
+                 String createdBy, String caseType);
+
     /** 评测用例分页（新增倒序），供管理端 Golden Set 维护。 */
     Page<KbEvalCaseView> listCases(Pageable page);
 

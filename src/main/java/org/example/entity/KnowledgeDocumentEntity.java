@@ -77,6 +77,16 @@ public class KnowledgeDocumentEntity extends BaseEntity {
     @Column(length = 128)
     private String category;
 
+    @Comment("内容责任人（知识治理：谁负责这篇文档的准确性）")
+    @Column(length = 64)
+    private String owner;
+
+    @Comment("下次复核日期（知识治理：过期后进入待复核队列）")
+    private java.util.Date reviewDueDate;
+
+    @Comment("最近一次人工复核时间")
+    private java.util.Date lastReviewedAt;
+
     @Comment("索引状态：PENDING=待索引，INDEXED=已索引，FAILED=失败")
     @Enumerated(EnumType.STRING)
     @Column(length = 20)

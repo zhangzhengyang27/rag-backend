@@ -32,6 +32,7 @@ import org.example.vo.UserQuotaView;
 import org.example.vo.UserUsageView;
 import org.example.vo.UserView;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.data.domain.Page;
@@ -69,6 +70,9 @@ import static org.mockito.Mockito.when;
  */
 @SpringBootTest
 @ActiveProfiles("itest")
+// 真实 MySQL/Redis 依赖的冒烟测试：默认跳过，`-Drag.itest.enabled=true` 时执行，
+// 避免本地/CI 没有 itest 库时把整个构建卡在连接错误上。
+@EnabledIfSystemProperty(named = "rag.itest.enabled", matches = "true")
 class KbIntegrationSmokeTest {
 
     @Autowired private AuthService authService;

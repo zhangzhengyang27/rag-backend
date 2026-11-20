@@ -73,6 +73,7 @@ public final class MarkdownChunker {
         StringBuilder prose = new StringBuilder();
         StringBuilder code = new StringBuilder();
         boolean inCode = false;
+        boolean inTable = false;
         char fenceChar = '`';
         String codeLang = "";
         String headingAnchor = "";
@@ -101,6 +102,21 @@ public final class MarkdownChunker {
                 continue;
             }
 
+            // 表格行必须整段保留：先冲刷前面的正文，再把连续 | 行收进同一段落，
+            // 避免表格被空行/句末标点切碎后丢失列语义。
+            if (inTable && !isTableRow(trimmed)) {
+                flushProse(prose, headingPath, heading, headingAnchor, currentOrdinal, max, ov, out);
+                inTable = false;
+            }
+            if (isTableRow(trimmed)) {
+                if (!inTable) {
+                    flushProse(prose, headingPath, heading, headingAnchor, currentOrdinal, max, ov, out);
+                    inTable = true;
+                }
+                prose.append(line).append('\n');
+                continue;
+            }
+
             if (isAtxHeading(trimmed)) {
                 flushProse(prose, headingPath, heading, headingAnchor, currentOrdinal, max, ov, out);
                 int level = headingLevel(trimmed);
@@ -118,6 +134,29 @@ public final class MarkdownChunker {
                 heading = text;
                 headingAnchor = anchor;
                 currentOrdinal = headingOrdinal;
+                continue;
+            }
+
+            // Setext 标题：正文行紧邻 ===/--- 下划线时提升为一级/二级标题，
+            // 兼容老文档与手写笔记（ATX # 之外的另一种常见写法）。
+            if (i + 1 < lines.length && isSetextUnderline(lines[i + 1].trim())) {
+                flushProse(prose, headingPath, heading, headingAnchor, currentOrdinal, max, ov, out);
+                int level = lines[i + 1].trim().charAt(0) == '=' ? 1 : 2;
+                String text = trimmed;
+                String anchor = slugger.slug(text);
+                while (!headingLevels.isEmpty()
+                        && headingLevels.get(headingLevels.size() - 1) >= level) {
+                    headingLevels.remove(headingLevels.size() - 1);
+                    headingTexts.remove(headingTexts.size() - 1);
+                }
+                headingLevels.add(level);
+                headingTexts.add(text);
+                headingOrdinal++;
+                headingPath = String.join(" > ", headingTexts);
+                heading = text;
+                headingAnchor = anchor;
+                currentOrdinal = headingOrdinal;
+                i++; // 跳过下划线行
                 continue;
             }
 
@@ -194,6 +233,28 @@ public final class MarkdownChunker {
         String[] parts = info.split("\\s+");
         String lang = parts[0].replaceAll("[^A-Za-z0-9_+.-]", "");
         return lang.length() > 32 ? lang.substring(0, 32) : lang;
+    }
+
+    /** 表格行：以 | 开头即视为表格行，兼容首尾竖线不完整的写法。 */
+    private static boolean isTableRow(String trimmed) {
+        return trimmed.length() > 1 && trimmed.charAt(0) == '|';
+    }
+
+    /** Setext 下划线：整行只由 = 或 - 组成（至少 3 个）。 */
+    private static boolean isSetextUnderline(String trimmed) {
+        if (trimmed.length() < 3) {
+            return false;
+        }
+        char c = trimmed.charAt(0);
+        if (c != '=' && c != '-') {
+            return false;
+        }
+        for (int i = 1; i < trimmed.length(); i++) {
+            if (trimmed.charAt(i) != c) {
+                return false;
+            }
+        }
+        return true;
     }
 
     private static boolean isAtxHeading(String trimmed) {
@@ -290,10 +351,14 @@ public final class MarkdownChunker {
      * 只保留字母、数字、CJK、空格和连字符；空格转连字符，同标题按出现顺序加 -1/-2。
      * 与前端 extractToc 的完全一致性仍以文档页实际 slug 为准；这里生成的是稳定可用的 best-effort 锚点。
      */
-    static final class HeadingSlugger {
+    /**
+     * 标题 slug 生成器。每个文档实例独立计数，保证同一文档内重复标题得到
+     * {@code title}、{@code title-1}、{@code title-2} 的稳定锚点。
+     */
+    public static final class HeadingSlugger {
         private final Map<String, Integer> seen = new HashMap<>();
 
-        String slug(String raw) {
+        public String slug(String raw) {
             String text = raw == null ? "" : raw;
             // 行内代码/链接/图片只保留可见文本；粗体/斜体标记去掉
             text = text.replaceAll("`([^`]*)`", "$1")

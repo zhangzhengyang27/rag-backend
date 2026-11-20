@@ -41,6 +41,9 @@ public class ContentGapController {
     @Autowired
     private AuditLogService auditLogService;
 
+    @Autowired
+    private org.example.service.KbContentDraftService contentDraftService;
+
     private String libraryId() {
         return org.example.library.KbLibrary.DEFAULT_LIBRARY;
     }
@@ -109,6 +112,15 @@ public class ContentGapController {
         auditLogService.record(libraryId(), operator(), "GAP_BATCH_STATUS", "CONTENT_GAP", null,
                 "批量流转 " + list.size() + " 条缺口 -> " + status);
         return Map.of("updated", list.size(), "status", status);
+    }
+
+    /** 缺口转内容生产：生成文章大纲（只生成草案，不自动入库）。 */
+    @PostMapping("/{id}/draft")
+    public org.example.vo.KbContentDraftView draft(@PathVariable("id") Long id) {
+        var draft = contentDraftService.draft(libraryId(), id);
+        auditLogService.record(libraryId(), operator(), "GAP_DRAFT", "CONTENT_GAP", id,
+                "生成内容大纲：" + (draft.getGeneratedBy() == null ? "" : draft.getGeneratedBy()));
+        return draft;
     }
 
     @PostMapping("/{id}/convert")

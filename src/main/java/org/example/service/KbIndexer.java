@@ -87,7 +87,7 @@ public class KbIndexer {
             // 避免一条超长 heading 让整篇文档索引失败（Redis metadata 同步用截断值）
             String headingPath = truncate(chunk.headingPath(), 512);
             String heading = truncate(chunk.heading(), 255);
-            String anchor = truncate(chunk.anchor(), 255);
+            String anchor = truncate(chunk.anchor(), 1024);
             String codeLang = truncate(chunk.codeLang(), 32);
             KnowledgeChunkEntity entity = new KnowledgeChunkEntity();
             entity.setLibraryId(doc.getLibraryId());

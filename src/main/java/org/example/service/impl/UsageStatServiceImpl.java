@@ -89,11 +89,21 @@ public class UsageStatServiceImpl implements UsageStatService {
     public UsageSummaryView summary(String libraryId, int days) {
         int n = Math.max(1, Math.min(days, 365));
         Date from = daysAgo(n);
-        List<ChatUsageEntity> records = usageRepository
-                .findByLibraryIdAndCreatedDateAfterOrderByIdAsc(libraryId, from);
+        // 管理端需要跨空间看真实用量：公共库 default 与个人库 u-{username} 是两套空间，
+        // 只按 default 汇总会把普通用户的问答全部漏掉（历史上就出现过“看板全是 0”）。
+        List<ChatUsageEntity> records = (libraryId == null || libraryId.isBlank())
+                ? usageRepository.findByCreatedDateAfterOrderByIdAsc(from)
+                : usageRepository.findByLibraryIdAndCreatedDateAfterOrderByIdAsc(libraryId, from);
         long questions = records.size();
         long input = records.stream().mapToLong(e -> intOf(e.getInputTokens())).sum();
         long output = records.stream().mapToLong(e -> intOf(e.getOutputTokens())).sum();
+        // 拒答分支写入的回答为空（answerCharCount=0），据此得到可观测的未答率；
+        // 不回填历史数据，旧记录同样适用该口径。
+        long unanswered = records.stream()
+                .filter(e -> e.getAnswerCharCount() == null || e.getAnswerCharCount() == 0)
+                .count();
+        long cacheHits = records.stream().filter(e -> Boolean.TRUE.equals(e.getCacheHit())).count();
+        long cacheSaved = records.stream().mapToLong(e -> intOf(e.getCacheSavedTokens())).sum();
         double avgLatency = questions == 0 ? 0 : records.stream()
                 .mapToDouble(e -> e.getElapsedMs() == null ? 0 : e.getElapsedMs()).average().orElse(0);
         double avgHit = questions == 0 ? 0 : records.stream()
@@ -125,13 +135,20 @@ public class UsageStatServiceImpl implements UsageStatService {
                 .totalTokens(input + output)
                 .avgLatencyMs(round1(avgLatency))
                 .avgHitCount(round1(avgHit))
+                .unansweredQuestions(unanswered)
+                .unansweredRate(questions == 0 ? 0 : (double) unanswered / questions)
+                .cacheHitCount(cacheHits)
+                .cacheSavedTokens(cacheSaved)
+                .cacheHitRate(questions == 0 ? 0 : (double) cacheHits / questions)
                 .trend(trend)
                 .build();
     }
 
     @Override
     public Page<ChatUsageView> recent(String libraryId, Pageable page) {
-        Page<ChatUsageEntity> entityPage = usageRepository.findByLibraryIdOrderByIdDesc(libraryId, page);
+        Page<ChatUsageEntity> entityPage = (libraryId == null || libraryId.isBlank())
+                ? usageRepository.findAllByOrderByIdDesc(page)
+                : usageRepository.findByLibraryIdOrderByIdDesc(libraryId, page);
         List<ChatUsageView> views = entityPage.getContent().stream().map(this::toView).toList();
         return new PageImpl<>(views, entityPage.getPageable(), entityPage.getTotalElements());
     }
@@ -141,7 +158,9 @@ public class UsageStatServiceImpl implements UsageStatService {
         int n = Math.max(1, Math.min(days, 365));
         int max = Math.max(1, Math.min(limit, 100));
         Date from = daysAgo(n);
-        List<Object[]> rows = usageRepository.aggregateByUser(libraryId, from);
+        List<Object[]> rows = (libraryId == null || libraryId.isBlank())
+                ? usageRepository.aggregateAllByUser(from)
+                : usageRepository.aggregateByUser(libraryId, from);
         List<UserUsageView> result = new ArrayList<>(Math.min(rows.size(), max));
         for (Object[] row : rows) {
             if (result.size() >= max) {
@@ -174,6 +193,8 @@ public class UsageStatServiceImpl implements UsageStatService {
                 .totalTokens(e.getTotalTokens())
                 .elapsedMs(e.getElapsedMs())
                 .hitCount(e.getHitCount())
+                .cacheHit(e.getCacheHit())
+                .cacheSavedTokens(e.getCacheSavedTokens())
                 .createdDate(e.getCreatedDate())
                 .build();
     }

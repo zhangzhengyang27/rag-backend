@@ -20,6 +20,9 @@ public class KbEvalCaseView {
 
     private String expectedDocIds;
 
+    /** RETRIEVAL / ANSWER_FORMAT */
+    private String caseType;
+
     private String note;
 
     private String createdBy;

@@ -73,6 +73,8 @@ public class KbSearchServiceImpl implements KbSearchService {
 
     /** 关键词路每个词条命中的基础置信度分（多个词条命中同一分块时累加） */
     private static final double KEYWORD_MATCH_SCORE = 1.0;
+    /** 标题命中加权：让“标题完全匹配问题”的文档优先进入 RRF，避免被通用正文条目压住 */
+    private static final double TITLE_MATCH_BOOST = 0.6;
     /** 召回来源路标识：向量召回 */
     private static final String RESULT_SOURCE_VECTOR = "vector";
     /** 召回来源路标识：关键词召回 */
@@ -231,6 +233,13 @@ public class KbSearchServiceImpl implements KbSearchService {
         if (filterDocIds != null) {
             keywordHits.removeIf(h -> !filterDocIds.contains(h.getDocId()));
         }
+
+        // 2.1 文档标题命中加权：技术问题经常直接以文档标题提问（如“HashMap 的扩容机制”），
+        // 但分块向量会被正文里的其他高频词带偏；把标题命中的文档排到两路召回前面，
+        // 再由 RRF 和 reranker 做最终裁决，避免“标题完全匹配却排在通用文章后面”。
+        List<String> queryTokens = tokenize(query);
+        applyTitleBoost(vectorHits, queryTokens);
+        applyTitleBoost(keywordHits, queryTokens);
 
         // 3. RRF 加权融合（向量 + 关键词两路），而非简单补位
         List<KbChunkHit> merged;
@@ -411,6 +420,8 @@ public class KbSearchServiceImpl implements KbSearchService {
      * 分数降序取前 {@code topK}。任何异常（模型为 null、推理失败等）都降级返回 RRF 原结果，
      * 不阻断检索链路。</p>
      */
+    private static final int RERANK_MAX_CHARS = 500;
+
     private List<KbChunkHit> rerank(List<KbChunkHit> candidates, String query, int topN, int topK,
                                     boolean rerankEnabled) {
         if (rerankScoringModel == null || !rerankEnabled || candidates.isEmpty()) {
@@ -419,8 +430,10 @@ public class KbSearchServiceImpl implements KbSearchService {
         int n = Math.min(topN, candidates.size());
         List<KbChunkHit> pool = candidates.subList(0, n);
         try {
+            // reranker 只截取正文前 500 字：长分块超出模型 510 token 后本来就会被截断，
+            // 先截断可避免 tokenizer 处理整段长文带来的尾延迟尖刺。
             List<TextSegment> segments = pool.stream()
-                    .map(h -> TextSegment.from(h.getText()))
+                    .map(h -> TextSegment.from(truncateForRerank(h.getText())))
                     .collect(Collectors.toList());
             List<Double> scores = rerankScoringModel.scoreAll(segments, query).content();
             // 防御：重排返回条数异常时收缩到实际条数，避免越界后整批降级丢失重排
@@ -465,6 +478,13 @@ public class KbSearchServiceImpl implements KbSearchService {
         }
     }
 
+    private String truncateForRerank(String text) {
+        if (text == null) {
+            return "";
+        }
+        return text.length() <= RERANK_MAX_CHARS ? text : text.substring(0, RERANK_MAX_CHARS);
+    }
+
     @Override
     public String retrieveForLlm(String query, int topK) {
         List<KbChunkHit> hits = search(query, topK);
@@ -503,7 +523,13 @@ public class KbSearchServiceImpl implements KbSearchService {
             if (hit.getDocId() == null || hit.getChunkIndex() == null) {
                 continue;
             }
-            if (hit.getChunkType() != null && !hit.getChunkType().isBlank()) {
+            // 旧向量索引里的 anchor 是标题原文（可能含空格），新索引是 slug；
+            // 只要发现旧格式就回查数据库覆盖，避免引用跳转继续使用过期锚点。
+            // 新格式/空值不需要额外查询，保持检索延迟稳定。
+            boolean needsAnchorRefresh = hit.getAnchor() == null
+                    || hit.getAnchor().isBlank()
+                    || hit.getAnchor().chars().anyMatch(Character::isWhitespace);
+            if (hit.getChunkType() != null && !hit.getChunkType().isBlank() && !needsAnchorRefresh) {
                 continue;
             }
             chunkRepository.findByDocIdAndChunkIndex(hit.getDocId(), hit.getChunkIndex())
@@ -599,22 +625,58 @@ public class KbSearchServiceImpl implements KbSearchService {
     }
 
     /**
+     * 文档标题命中加权：同一路召回内按“标题是否包含查询词条”重排。
+     *
+     * <p>RRF 只使用顺序、不使用原始分数，因此这里必须真正排序；技术文档标题通常是
+     * 用户问题的最强意图信号，标题命中优先于正文中偶然出现的同名词。</p>
+     */
+    private void applyTitleBoost(List<KbChunkHit> hits, List<String> tokens) {
+        if (hits == null || hits.isEmpty() || tokens == null || tokens.isEmpty()) {
+            return;
+        }
+        for (KbChunkHit hit : hits) {
+            String title = hit.getTitle();
+            if (title == null || title.isBlank()) {
+                continue;
+            }
+            boolean titleMatched = tokens.stream()
+                    .filter(t -> t != null && t.length() >= 2)
+                    .anyMatch(t -> title.toLowerCase().contains(t.toLowerCase()));
+            if (titleMatched) {
+                hit.setScore((hit.getScore() == null ? 0d : hit.getScore()) + TITLE_MATCH_BOOST);
+            }
+        }
+        hits.sort(Comparator
+                .comparing((KbChunkHit h) -> h.getScore() == null ? 0d : h.getScore()).reversed()
+                .thenComparing(KbChunkHit::getDocId)
+                .thenComparing(KbChunkHit::getChunkIndex));
+    }
+
+    /**
      * 轻量分词：按空白与常用中英文标点切分，保留技术术语（API 名、错误码、类名）。
      * 停用标点被切掉，即配置中"去除停用标点、保留词条"的语义。
      * 为避免过多词条导致多余的数据库查询与噪声，限制词条数上限、丢弃单字符噪声词条。
      */
-    private static final int MAX_KEYWORD_TOKENS = 4;
+    private static final int MAX_KEYWORD_TOKENS = 5;
 
     private List<String> tokenize(String query) {
         String text = query == null ? "" : query.trim();
         if (text.isEmpty()) {
             return new ArrayList<>();
         }
+        // 中文技术问题常见“的/怎么/有哪些”等虚词会把关键词粘成一个长串，
+        // 导致 LIKE/BM25 无法命中正文里的“扩容”“自动配置”等核心词；先剥离问句壳再切词。
+        text = text.replaceAll(
+                "(是怎样的|是什么|有哪些|哪几种|有什么区别|的区别|是怎么实现的|怎么实现|如何实现|为什么|怎么样|怎么|如何|请问|请解释|解释一下|由哪些部分组成|一下)",
+                " ");
+        text = text.replaceAll("的", " ");
+        // 复合词尾部（机制/原理/流程等）拆开，保留“扩容/自动配置”等真正的主题词。
+        text = text.replaceAll("(机制|原理|流程|步骤|方式|方法|作用|实现|优化|结构|算法|属性|状态|类型)$", " $1");
         String[] parts = text.split("[\\s,，。;；、:：\\-—_/|()（）]+");
         java.util.LinkedHashSet<String> tokens = new java.util.LinkedHashSet<>();
         for (String p : parts) {
             String t = sanitizeKeyword(p);
-            // 丢弃单字符噪声词条（如单个字/符号），避免似 LIKE、护词条数上限
+            // 丢弃单字符噪声词条（如单个字/符号），避免 LIKE/护词条数上限
             if (t.length() >= 2) {
                 tokens.add(t);
                 if (tokens.size() >= MAX_KEYWORD_TOKENS) {

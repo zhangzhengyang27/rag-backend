@@ -32,5 +32,11 @@ public class ChatUsageView {
 
     private Integer hitCount;
 
+    /** 是否命中语义缓存 */
+    private Boolean cacheHit;
+
+    /** 缓存命中节省的输出 token 估算 */
+    private Integer cacheSavedTokens;
+
     private Date createdDate;
 }

@@ -19,6 +19,10 @@ public class KbEvalResult {
     private double mrr;
     /** NDCG@K（标准化折扣累积收益）：衡量排序质量；仅对声明了期望命中文档的用例计算，无声明时为 0 */
     private double ndcg;
+    /** Context Precision：Top-K 中命中期望文档的分块占比，衡量检索上下文纯度。 */
+    private double contextPrecision;
+    /** Context Recall：期望文档被召回的比例，衡量检索覆盖度。 */
+    private double contextRecall;
     /** 逐用例明细 */
     private List<CaseResult> cases;
 
@@ -104,16 +108,25 @@ public class KbEvalResult {
     }
 
     public KbEvalResult(int total, int hit, int miss, double hitRate, double mrr, List<CaseResult> cases) {
-        this(total, hit, miss, hitRate, mrr, 0d, cases);
+        this(total, hit, miss, hitRate, mrr, 0d, 0d, 0d, cases);
     }
 
-    public KbEvalResult(int total, int hit, int miss, double hitRate, double mrr, double ndcg, List<CaseResult> cases) {
+    /** 兼容旧调用（单元测试/历史报表）：未提供 RAGAS 两项时记 0。 */
+    public KbEvalResult(int total, int hit, int miss, double hitRate, double mrr, double ndcg,
+                        List<CaseResult> cases) {
+        this(total, hit, miss, hitRate, mrr, ndcg, 0d, 0d, cases);
+    }
+
+    public KbEvalResult(int total, int hit, int miss, double hitRate, double mrr, double ndcg,
+                        double contextPrecision, double contextRecall, List<CaseResult> cases) {
         this.total = total;
         this.hit = hit;
         this.miss = miss;
         this.hitRate = hitRate;
         this.mrr = mrr;
         this.ndcg = ndcg;
+        this.contextPrecision = contextPrecision;
+        this.contextRecall = contextRecall;
         this.cases = cases;
     }
 
@@ -139,6 +152,14 @@ public class KbEvalResult {
 
     public double getNdcg() {
         return ndcg;
+    }
+
+    public double getContextPrecision() {
+        return contextPrecision;
+    }
+
+    public double getContextRecall() {
+        return contextRecall;
     }
 
     public List<CaseResult> getCases() {

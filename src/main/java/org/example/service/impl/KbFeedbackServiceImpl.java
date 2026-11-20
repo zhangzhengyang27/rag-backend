@@ -66,9 +66,19 @@ public class KbFeedbackServiceImpl implements KbFeedbackService {
     @Override
     public Page<ChatFeedbackView> page(String libraryId, String rating, Pageable pageable) {
         boolean rated = rating != null && !rating.isBlank();
-        Page<KbChatFeedbackEntity> result = rated
-                ? feedbackRepository.findByLibraryIdAndRating(libraryId, rating.trim().toUpperCase(), pageable)
-                : feedbackRepository.findByLibraryId(libraryId, pageable);
+        String normalizedRating = rated ? rating.trim().toUpperCase() : null;
+        // libraryId 为空表示管理端跨空间口径：公共库与个人库的反馈都要能看到，
+        // 否则周报有数据、反馈工作台却显示空。个人空间页仍传显式 libraryId。
+        Page<KbChatFeedbackEntity> result;
+        if (libraryId == null || libraryId.isBlank()) {
+            result = rated
+                    ? feedbackRepository.findByRating(normalizedRating, pageable)
+                    : feedbackRepository.findAll(pageable);
+        } else {
+            result = rated
+                    ? feedbackRepository.findByLibraryIdAndRating(libraryId, normalizedRating, pageable)
+                    : feedbackRepository.findByLibraryId(libraryId, pageable);
+        }
         return result.map(ChatFeedbackView::of);
     }
 

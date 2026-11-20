@@ -23,8 +23,10 @@ import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
 import org.example.vo.KbEvalAbResult;
@@ -62,6 +64,15 @@ public class KbAdminController {
 
     @Autowired
     private org.example.service.KbTraceService kbTraceService;
+
+    @Autowired
+    private org.example.service.KbGovernanceService kbGovernanceService;
+
+    @Autowired
+    private org.example.service.KbContentLintService kbContentLintService;
+
+    @Autowired
+    private org.example.service.KbGitSyncService kbGitSyncService;
 
     private String currentUserId() {
         // principal 为 record 类型时 getName() 返回 toString()，必须显式取 username
@@ -151,6 +162,54 @@ public class KbAdminController {
         return kbDocumentService.stats(resolveLibraryId());
     }
 
+    /** 知识治理健康度汇总：重复/过期/缺责任人/空分块与平均健康分。 */
+    @GetMapping("/governance/summary")
+    public org.example.vo.KbGovernanceSummaryView governanceSummary(
+            @RequestParam(value = "staleDays", defaultValue = "180") int staleDays) {
+        return kbGovernanceService.summary(resolveLibraryId(), staleDays);
+    }
+
+    /** GitHub 增量同步：浅克隆/更新仓库后复用目录导入，返回导入任务 ID。 */
+    @PostMapping("/sources/github/sync")
+    public org.example.vo.KbGitSyncView syncGithub(
+            @RequestParam("repoUrl") String repoUrl,
+            @RequestParam(value = "branch", defaultValue = "main") String branch,
+            @RequestParam(value = "path", defaultValue = "") String path) {
+        var view = kbGitSyncService.sync(repoUrl, branch, path, currentUserId(), resolveLibraryId());
+        auditLogService.record(resolveLibraryId(), currentUserId(), "GITHUB_SYNC", "SOURCE", null,
+                "GitHub 同步：" + view.getRepoUrl() + " " + view.getBranch() + " " + view.getPath());
+        return view;
+    }
+
+    /** 全站内容 Lint：断链/同名标题 + 可粘贴 PR 的修复清单（只提示，不自动改稿）。 */
+    @GetMapping("/lint")
+    public org.example.vo.KbLintReportView contentLint(
+            @RequestParam(value = "limit", defaultValue = "200") int limit) {
+        return kbContentLintService.lint(resolveLibraryId(), limit);
+    }
+
+    /** 知识治理问题列表（按健康分升序，最差的先出）；type 可选。 */
+    @GetMapping("/governance/issues")
+    public List<org.example.vo.KbGovernanceIssueView> governanceIssues(
+            @RequestParam(value = "type", required = false) String type,
+            @RequestParam(value = "staleDays", defaultValue = "180") int staleDays,
+            @RequestParam(value = "limit", defaultValue = "200") int limit) {
+        return kbGovernanceService.issues(resolveLibraryId(), type, staleDays, limit);
+    }
+
+    /** 维护文档责任人与复核日期；owner 传空串表示清空。 */
+    @PutMapping("/governance/documents/{id}")
+    public Map<String, Object> updateGovernance(
+            @PathVariable("id") Long id,
+            @RequestParam(value = "owner", required = false) String owner,
+            @RequestParam(value = "reviewDueDate", required = false)
+            @DateTimeFormat(pattern = "yyyy-MM-dd") java.util.Date reviewDueDate) {
+        kbGovernanceService.update(resolveLibraryId(), id, owner, reviewDueDate, currentUserId());
+        auditLogService.record(resolveLibraryId(), currentUserId(), "GOVERNANCE_UPDATE", "DOCUMENT", id,
+                "更新治理信息：owner=" + (owner == null ? "" : owner));
+        return Map.of("id", id);
+    }
+
     /**
      * 运营周报：近 N 天的用量汇总/按日趋势 + 反馈点赞点踩与点踩率 + 点踩 Top 问题榜（内容补强清单）
      * + 检索质量趋势（评测日报）+ 打开中的告警数。
@@ -234,18 +293,45 @@ public class KbAdminController {
     }
 
     /**
+     * 评测门禁：CI/发布前调用；返回 passed 与逐项阈值，不直接抛 4xx。
+     * 门禁只跑 RETRIEVAL 类 Golden Set，格式/引用类不计入检索质量。
+     */
+    @GetMapping("/eval/gate")
+    public Map<String, Object> evalGate(@RequestParam(value = "topK", defaultValue = "5") int topK) {
+        KbEvalResult result = kbEvalService.run(resolveLibraryId(), null, topK);
+        java.util.List<Map<String, Object>> checks = new java.util.ArrayList<>();
+        boolean passed = true;
+        passed &= addCheck(checks, "caseCount", result.getTotal(), 20, "≥");
+        passed &= addCheck(checks, "hitRate", result.getHitRate(), 0.45, "≥");
+        passed &= addCheck(checks, "ndcg", result.getNdcg(), 0.55, "≥");
+        passed &= addCheck(checks, "contextPrecision", result.getContextPrecision(), 0.20, "≥");
+        passed &= addCheck(checks, "contextRecall", result.getContextRecall(), 0.70, "≥");
+        return Map.of("passed", passed, "checks", checks, "metrics", result);
+    }
+
+    /** 单项门禁；detail 里保留实际值与阈值，CI 日志可读。 */
+    private boolean addCheck(List<Map<String, Object>> checks, String name, double actual,
+                             double threshold, String op) {
+        boolean ok = actual >= threshold;
+        checks.add(Map.of("name", name, "actual", actual, "threshold", threshold, "pass", ok));
+        return ok;
+    }
+
+    /**
      * 用量统计汇总：近 N 天问答数 / token（估算）/ 平均耗时 / 平均命中 + 按日趋势。
+     *
+     * <p>管理端看全局：传 null 表示跨公共库与个人库汇总，避免个人空间问答在看板中“消失”。</p>
      */
     @GetMapping("/usage/summary")
     public UsageSummaryView usageSummary(@RequestParam(value = "days", defaultValue = "30") int days) {
-        return usageStatService.summary(resolveLibraryId(), days);
+        return usageStatService.summary(null, days);
     }
 
-    /** 用量明细分页（时间倒序），供管理端明细表。 */
+    /** 用量明细分页（时间倒序），管理端跨空间展示。 */
     @GetMapping("/usage/recent")
     public PagedModel<ChatUsageView> usageRecent(
             @PageableDefault(size = 20, sort = "id", direction = Sort.Direction.DESC) Pageable page) {
-        Page<ChatUsageView> result = usageStatService.recent(resolveLibraryId(), page);
+        Page<ChatUsageView> result = usageStatService.recent(null, page);
         return new PagedModel<>(result);
     }
 
@@ -259,7 +345,7 @@ public class KbAdminController {
     public List<org.example.vo.UserUsageView> usageTopUsers(
             @RequestParam(value = "days", defaultValue = "7") int days,
             @RequestParam(value = "limit", defaultValue = "10") int limit) {
-        return usageStatService.topUsers(resolveLibraryId(), days, limit);
+        return usageStatService.topUsers(null, days, limit);
     }
 
     /**
@@ -282,8 +368,9 @@ public class KbAdminController {
     public Map<String, Object> addEvalCase(@RequestParam("question") String question,
                                            @RequestParam("expectedKeywords") String expectedKeywords,
                                            @RequestParam(value = "expectedDocIds", required = false) String expectedDocIds,
-                                           @RequestParam(value = "note", required = false) String note) {
-        Long id = kbEvalService.addCase(question, expectedKeywords, expectedDocIds, note, currentUserId());
+                                           @RequestParam(value = "note", required = false) String note,
+                                           @RequestParam(value = "caseType", required = false) String caseType) {
+        Long id = kbEvalService.addCase(question, expectedKeywords, expectedDocIds, note, currentUserId(), caseType);
         auditLogService.record(resolveLibraryId(), currentUserId(), "EVAL_CASE_ADD", "EVAL_CASE", id,
                 "新增评测用例 #" + id + "：" + question);
         return Map.of("id", id);
@@ -325,8 +412,9 @@ public class KbAdminController {
     public PagedModel<org.example.vo.ChatFeedbackView> feedback(
             @RequestParam(value = "rating", required = false) String rating,
             @PageableDefault(size = 20, sort = "id", direction = Sort.Direction.DESC) Pageable page) {
+        // 管理端看全局反馈：与周报的口径一致，不限定公共库 default。
         Page<org.example.vo.ChatFeedbackView> result =
-                kbFeedbackService.page(resolveLibraryId(), rating, page);
+                kbFeedbackService.page(null, rating, page);
         return new PagedModel<>(result);
     }
 

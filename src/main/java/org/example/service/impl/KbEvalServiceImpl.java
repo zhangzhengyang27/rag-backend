@@ -75,14 +75,27 @@ public class KbEvalServiceImpl implements KbEvalService {
     /** 单组评测：以显式空间身份检索（评测线程无登录态，不能读 SecurityContext）；options 为 null 或字段为 null 时沿用全局检索配置。 */
     private KbEvalResult runEval(String libraryId, Integer limit, Integer topK, SearchOptions options) {
         int topN = (topK == null || topK < 1) ? 5 : topK;
+        // Golden Set 固定只跑检索类用例；格式/引用类（如“回答中不要出现 [n]”）不计入
+        // HitRate，否则会把“回答格式”与“检索召回”混成一个不可解释的指标。
+        List<RagEvalCaseEntity> retrievalCases =
+                evalCaseRepository.findByCaseTypeOrderByIdAsc("RETRIEVAL");
+        // 兼容 V7 之前写入/外部导入的旧用例：case_type 为空的按检索类处理，
+        // 避免历史数据在升级后被静默漏跑。
+        if (retrievalCases.isEmpty()) {
+            retrievalCases = evalCaseRepository.findAll().stream()
+                    .filter(c -> c.getCaseType() == null || "RETRIEVAL".equals(c.getCaseType()))
+                    .toList();
+        }
         List<RagEvalCaseEntity> cases = limit != null && limit > 0
-                ? evalCaseRepository.findAll(PageRequest.of(0, limit)).getContent()
-                : evalCaseRepository.findAll();
+                ? retrievalCases.stream().limit(limit).toList()
+                : retrievalCases;
 
         int hit = 0;
         int miss = 0;
         double mrrSum = 0;
         double ndcgSum = 0;
+        double precisionSum = 0;
+        double recallSum = 0;
         int ndcgCaseCount = 0;
         List<KbEvalResult.CaseResult> details = new ArrayList<>(cases.size());
         for (RagEvalCaseEntity c : cases) {
@@ -111,6 +124,10 @@ public class KbEvalServiceImpl implements KbEvalService {
                 if (!expectedDocIds.isEmpty()) {
                     ndcg = ndcgAtK(results, expectedDocIds);
                     ndcgSum += ndcg;
+                    // RAGAS 口径的检索两项：Context Precision=相关分块/返回分块；
+                    // Context Recall=被召回期望文档/期望文档总数。
+                    precisionSum += contextPrecision(results, expectedDocIds);
+                    recallSum += contextRecall(results, expectedDocIds);
                     ndcgCaseCount++;
                 }
             } catch (Exception e) {
@@ -133,9 +150,38 @@ public class KbEvalServiceImpl implements KbEvalService {
         double rate = total == 0 ? 0 : (double) hit / total;
         double mrr = total == 0 ? 0 : mrrSum / total;
         double ndcg = ndcgCaseCount == 0 ? 0 : ndcgSum / ndcgCaseCount;
-        log.info("RAG 评测完成 - 用例: {}, 命中: {}, 命中率: {}%, MRR: {}, NDCG: {}", total, hit,
-                Math.round(rate * 1000) / 10.0, mrr, ndcg);
-        return new KbEvalResult(total, hit, miss, rate, mrr, ndcg, details);
+        double contextPrecision = ndcgCaseCount == 0 ? 0 : precisionSum / ndcgCaseCount;
+        double contextRecall = ndcgCaseCount == 0 ? 0 : recallSum / ndcgCaseCount;
+        log.info("RAG 评测完成 - 用例: {}, 命中: {}, 命中率: {}%, MRR: {}, NDCG: {}, CP: {}, CR: {}", total, hit,
+                Math.round(rate * 1000) / 10.0, mrr, ndcg, contextPrecision, contextRecall);
+        return new KbEvalResult(total, hit, miss, rate, mrr, ndcg, contextPrecision, contextRecall, details);
+    }
+
+    /** Context Precision：返回的 Top-K 分块中，有多少来自期望文档。 */
+    private double contextPrecision(List<KbChunkHit> results, List<Long> expectedDocIds) {
+        if (results == null || results.isEmpty()) {
+            return 0;
+        }
+        java.util.Set<Long> expected = new java.util.HashSet<>(expectedDocIds);
+        long relevant = results.stream().filter(h -> h.getDocId() != null && expected.contains(h.getDocId())).count();
+        return (double) relevant / results.size();
+    }
+
+    /** Context Recall：期望文档中至少被一个返回分块召回的比例。 */
+    private double contextRecall(List<KbChunkHit> results, List<Long> expectedDocIds) {
+        if (expectedDocIds.isEmpty()) {
+            return 0;
+        }
+        java.util.Set<Long> returned = new java.util.HashSet<>();
+        if (results != null) {
+            results.forEach(h -> {
+                if (h.getDocId() != null) {
+                    returned.add(h.getDocId());
+                }
+            });
+        }
+        long found = expectedDocIds.stream().distinct().filter(returned::contains).count();
+        return (double) found / expectedDocIds.stream().distinct().count();
     }
 
     /**
@@ -151,11 +197,14 @@ public class KbEvalServiceImpl implements KbEvalService {
             return 0d;
         }
         java.util.Set<Long> expected = new java.util.HashSet<>(expectedDocIds);
+        java.util.Set<Long> seenDocs = new java.util.HashSet<>();
         double dcg = 0;
         int hits = 0;
         for (int i = 0; i < results.size(); i++) {
             Long docId = results.get(i).getDocId();
-            if (docId != null && expected.contains(docId)) {
+            // 同一文档常被切成多个分块：NDCG 只按文档计一次相关，否则重复分块会把 DCG
+            // 抬到大于 IDCG（历史上出现过 NDCG > 1 的失真）。
+            if (docId != null && expected.contains(docId) && seenDocs.add(docId)) {
                 dcg += 1d / (Math.log(i + 2) / Math.log(2)); // rel_i / log2(i+1)，i 从 0 起
                 hits++;
             }
@@ -198,13 +247,29 @@ public class KbEvalServiceImpl implements KbEvalService {
 
     @Override
     public Long addCase(String question, String expectedKeywords, String expectedDocIds, String note, String createdBy) {
+        return addCase(question, expectedKeywords, expectedDocIds, note, createdBy, "RETRIEVAL");
+    }
+
+    @Override
+    public Long addCase(String question, String expectedKeywords, String expectedDocIds, String note,
+                        String createdBy, String caseType) {
         RagEvalCaseEntity entity = new RagEvalCaseEntity();
         entity.setQuestion(question);
         entity.setExpectedKeywords(expectedKeywords);
         entity.setExpectedDocIds(expectedDocIds);
         entity.setNote(note);
         entity.setCreatedBy(createdBy);
+        entity.setCaseType(normalizeCaseType(caseType));
         return evalCaseRepository.save(entity).getId();
+    }
+
+    /** 只允许两类，未知值回退检索类，避免脏值进入评测统计。 */
+    private String normalizeCaseType(String caseType) {
+        if (caseType == null || caseType.isBlank()) {
+            return "RETRIEVAL";
+        }
+        String value = caseType.trim().toUpperCase(Locale.ROOT);
+        return value.equals("ANSWER_FORMAT") ? value : "RETRIEVAL";
     }
 
     @Override
@@ -258,6 +323,7 @@ public class KbEvalServiceImpl implements KbEvalService {
                 .question(e.getQuestion())
                 .expectedKeywords(e.getExpectedKeywords())
                 .expectedDocIds(e.getExpectedDocIds())
+                .caseType(e.getCaseType())
                 .note(e.getNote())
                 .createdBy(e.getCreatedBy())
                 .createdDate(e.getCreatedDate())

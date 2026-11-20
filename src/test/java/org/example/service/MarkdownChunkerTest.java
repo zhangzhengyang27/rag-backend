@@ -164,4 +164,47 @@ class MarkdownChunkerTest {
                 .contains("int value0 = 0;")
                 .contains("int value39 = 39;");
     }
+    @Test
+    void tableRowsStayTogetherAndKeepHeader() {
+        String markdown = """
+                # 对比
+
+                下表是三种盒模型：
+
+                | 类型 | box-sizing | 宽度含义 |
+                | --- | --- | --- |
+                | 标准盒模型 | content-box | 只含 content |
+                | 替代盒模型 | border-box | 含 padding/border |
+
+                结论见上表。
+                """;
+        List<MarkdownChunker.Chunk> chunks = MarkdownChunker.chunk(markdown, 500, 60);
+
+        assertThat(chunks).anySatisfy(chunk -> {
+            assertThat(chunk.text()).contains("| 类型 | box-sizing | 宽度含义 |");
+            assertThat(chunk.text()).contains("| 替代盒模型 | border-box | 含 padding/border |");
+        });
+    }
+
+    @Test
+    void setextHeadingBecomesHeadingPath() {
+        String markdown = """
+                快速开始
+                ===
+
+                正文内容。
+
+                安装步骤
+                ---
+
+                第二步正文。
+                """;
+        List<MarkdownChunker.Chunk> chunks = MarkdownChunker.chunk(markdown, 500, 60);
+
+        assertThat(chunks).anySatisfy(chunk ->
+                assertThat(chunk.headingPath()).isEqualTo("快速开始"));
+        assertThat(chunks).anySatisfy(chunk ->
+                assertThat(chunk.headingPath()).isEqualTo("快速开始 > 安装步骤"));
+    }
+
 }

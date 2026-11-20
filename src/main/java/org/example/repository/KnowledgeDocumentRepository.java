@@ -30,6 +30,9 @@ public interface KnowledgeDocumentRepository extends BaseRepository<KnowledgeDoc
 
     Page<KnowledgeDocumentEntity> findByLibraryId(String libraryId, Pageable pageable);
 
+    /** 治理扫描：一次取全量文档（公共库约 4.5k 篇，内存扫描可接受）。 */
+    java.util.List<KnowledgeDocumentEntity> findAllByLibraryId(String libraryId);
+
     @Query("select d from KnowledgeDocumentEntity d where d.libraryId = :libraryId and (d.title like %:kw% or d.fileName like %:kw%)")
     Page<KnowledgeDocumentEntity> searchByKeywordInLibrary(@Param("libraryId") String libraryId, @Param("kw") String keyword, Pageable pageable);
 

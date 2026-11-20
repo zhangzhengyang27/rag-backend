@@ -49,6 +49,9 @@ public class KbController {
     @Autowired
     private org.example.service.KbDocumentService kbDocumentService;
 
+    @Autowired
+    private org.example.service.KbLearningService kbLearningService;
+
     /** 用户侧配额/范围的主空间：个人知识库（u-{username}），无 DB 依赖。 */
     private String primaryLibrary() {
         String username = org.example.security.SecurityUtil.currentUsername();
@@ -100,6 +103,30 @@ public class KbController {
     @GetMapping("/categories")
     public List<String> categories() {
         return kbDocumentService.categories("default");
+    }
+
+    /**
+     * 学习型 AI 导读：一分钟概览 + 分节要点 + 自测题。
+     * 先按当前空间查，查不到回退公共库（公开文档对所有登录用户可读）。
+     */
+    @GetMapping("/learning/by-path")
+    public org.example.vo.KbLearningGuideView learningGuideByPath(@RequestParam("path") String path) {
+        String library = org.example.security.SecurityUtil.currentLibraryId("default");
+        try {
+            return kbLearningService.guideByPath(library, path);
+        } catch (IllegalArgumentException e) {
+            return kbLearningService.guideByPath("default", path);
+        }
+    }
+
+    @GetMapping("/learning/{docId}")
+    public org.example.vo.KbLearningGuideView learningGuide(@PathVariable("docId") Long docId) {
+        String library = org.example.security.SecurityUtil.currentLibraryId("default");
+        try {
+            return kbLearningService.guide(library, docId);
+        } catch (IllegalArgumentException e) {
+            return kbLearningService.guide("default", docId);
+        }
     }
 
     /**

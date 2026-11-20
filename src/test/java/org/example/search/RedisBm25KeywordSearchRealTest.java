@@ -8,6 +8,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.MethodOrderer;
 import org.junit.jupiter.api.Order;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
 import org.junit.jupiter.api.TestMethodOrder;
 import redis.clients.jedis.JedisPooled;
 
@@ -22,6 +23,8 @@ import static org.junit.jupiter.api.Assumptions.assumeTrue;
  * Redis Stack 未运行时自动跳过（assumeTrue），不阻断常规构建。
  */
 @TestMethodOrder(MethodOrderer.OrderAnnotation.class)
+// 需要本地 Redis Stack（RediSearch 模块）：默认跳过，`-Drag.itest.enabled=true` 时执行。
+@EnabledIfSystemProperty(named = "rag.itest.enabled", matches = "true")
 class RedisBm25KeywordSearchRealTest {
 
     private static final String INDEX = "kb_bm25_it";
