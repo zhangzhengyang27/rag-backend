@@ -87,6 +87,7 @@ public class KbIndexer {
             // 避免一条超长 heading 让整篇文档索引失败（Redis metadata 同步用截断值）
             String headingPath = truncate(chunk.headingPath(), 512);
             String heading = truncate(chunk.heading(), 255);
+            String anchor = truncate(chunk.anchor(), 255);
             String codeLang = truncate(chunk.codeLang(), 32);
             KnowledgeChunkEntity entity = new KnowledgeChunkEntity();
             entity.setLibraryId(doc.getLibraryId());
@@ -95,8 +96,8 @@ public class KbIndexer {
             entity.setText(chunk.text());
             entity.setCharCount(chunk.text().length());
             entity.setHeadingPath(headingPath);
-            // 后端只存标题文本，锚点由前端用 extractToc 映射，避免 Java/JS slug 算法不一致
-            entity.setAnchor(heading);
+            // 后端生成近似 github-slugger 的锚点；前端仍会在缺失/旧索引时按 heading 兜底
+            entity.setAnchor(anchor == null ? "" : anchor);
             entity.setHeadingOrdinal(chunk.headingOrdinal());
             entity.setChunkType(chunk.chunkType());
             entity.setCodeLang(codeLang);
@@ -112,6 +113,7 @@ public class KbIndexer {
             meta.put("category", doc.getCategory() == null ? "" : doc.getCategory());
             meta.put("headingPath", headingPath == null ? "" : headingPath);
             meta.put("heading", heading == null ? "" : heading);
+            meta.put("anchor", anchor == null ? "" : anchor);
             meta.put("headingOrdinal", chunk.headingOrdinal());
             meta.put("chunkType", chunk.chunkType());
             meta.put("codeLang", codeLang == null ? "" : codeLang);

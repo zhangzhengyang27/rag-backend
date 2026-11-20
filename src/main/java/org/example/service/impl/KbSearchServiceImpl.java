@@ -61,9 +61,15 @@ public class KbSearchServiceImpl implements KbSearchService {
     /**
      * 语义重排模型（本地 bge-reranker INT8 ONNX）。可为 null：
      * 未启用或模型加载失败时不注入，检索降级为纯 RRF 融合结果。
+     * 用 setter 注入而不是字段注入：字段注入在代理/多实例场景下曾出现未注入，
+     * setter 能保证启动期显式完成一次赋值，并保留 required=false 的可选语义。
      */
-    @Autowired(required = false)
     private ScoringModel rerankScoringModel;
+
+    @Autowired(required = false)
+    public void setRerankScoringModel(ScoringModel rerankScoringModel) {
+        this.rerankScoringModel = rerankScoringModel;
+    }
 
     /** 关键词路每个词条命中的基础置信度分（多个词条命中同一分块时累加） */
     private static final double KEYWORD_MATCH_SCORE = 1.0;
@@ -193,6 +199,10 @@ public class KbSearchServiceImpl implements KbSearchService {
             if (filterDocIds != null && !filterDocIds.contains(id)) {
                 continue;
             }
+            String anchorMeta = toStringVal(meta.get("anchor"));
+            if (anchorMeta == null || anchorMeta.isBlank()) {
+                anchorMeta = toStringVal(meta.get("heading"));
+            }
             vectorHits.add(KbChunkHit.builder()
                     .docId(id)
                     .chunkIndex(chunkIndex)
@@ -201,7 +211,7 @@ public class KbSearchServiceImpl implements KbSearchService {
                     .siteSlug(defaultEmpty(toStringVal(meta.get("siteSlug"))))
                     .headingPath(defaultEmpty(toStringVal(meta.get("headingPath"))))
                     .heading(defaultEmpty(toStringVal(meta.get("heading"))))
-                    .anchor(defaultEmpty(toStringVal(meta.get("heading"))))
+                    .anchor(defaultEmpty(anchorMeta))
                     .headingOrdinal(toInteger(meta.get("headingOrdinal")))
                     .chunkType(defaultEmpty(toStringVal(meta.get("chunkType"))))
                     .codeLang(defaultEmpty(toStringVal(meta.get("codeLang"))))
@@ -476,6 +486,15 @@ public class KbSearchServiceImpl implements KbSearchService {
      * headingPath/heading/chunkType 字段），按 docId + chunkIndex 回查 kb_chunk。
      * 已经有 chunkType 的命中（MySQL 关键词路或新索引）直接跳过，避免无谓查询。
      */
+    /** 从 headingPath 取最后一段作为当前标题文本（实体没有单独 heading 列时的兜底）。 */
+    private static String headingFromPath(String headingPath) {
+        if (headingPath == null || headingPath.isBlank()) {
+            return "";
+        }
+        int idx = headingPath.lastIndexOf(" > ");
+        return idx >= 0 ? headingPath.substring(idx + 3) : headingPath;
+    }
+
     private void enrichFromDb(List<KbChunkHit> hits) {
         if (hits == null || hits.isEmpty()) {
             return;
@@ -490,7 +509,9 @@ public class KbSearchServiceImpl implements KbSearchService {
             chunkRepository.findByDocIdAndChunkIndex(hit.getDocId(), hit.getChunkIndex())
                     .ifPresent(chunk -> {
                         hit.setHeadingPath(chunk.getHeadingPath());
-                        hit.setHeading(chunk.getAnchor());
+                        // 实体只有 anchor 列：新索引存 slug，旧索引存标题文本；
+                        // heading 一律从 headingPath 最后一段派生，避免把 slug 当标题展示。
+                        hit.setHeading(headingFromPath(chunk.getHeadingPath()));
                         hit.setAnchor(chunk.getAnchor());
                         hit.setHeadingOrdinal(chunk.getHeadingOrdinal());
                         hit.setChunkType(chunk.getChunkType());
@@ -551,7 +572,7 @@ public class KbSearchServiceImpl implements KbSearchService {
                             .filePath(doc.getFilePath())
                             .siteSlug(doc.getSiteSlug())
                             .headingPath(chunk.getHeadingPath())
-                            .heading(chunk.getAnchor())
+                            .heading(headingFromPath(chunk.getHeadingPath()))
                             .anchor(chunk.getAnchor())
                             .headingOrdinal(chunk.getHeadingOrdinal())
                             .chunkType(chunk.getChunkType())

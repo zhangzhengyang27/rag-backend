@@ -45,4 +45,7 @@ public class KbChunkHit {
 
     /** 代码语言（chunkType=code 时记录围栏语言，如 java/bash） */
     private String codeLang;
+
+    /** 引用编号（从 1 开始，与回答中的 [n] 一一对应；仅问答 sources 事件填充） */
+    private String citationId;
 }

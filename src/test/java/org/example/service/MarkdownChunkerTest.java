@@ -59,7 +59,26 @@ class MarkdownChunkerTest {
         MarkdownChunker.Chunk chunk = chunks.get(0);
         assertThat(chunk.headingPath()).isEqualTo("Java > 集合 > HashMap");
         assertThat(chunk.heading()).isEqualTo("HashMap");
+        assertThat(chunk.anchor()).isEqualTo("hashmap");
         assertThat(chunk.headingOrdinal()).isEqualTo(3);
+    }
+
+    @Test
+    void headingAnchorRemovesPunctuationAndDeduplicates() {
+        String markdown = """
+                # 1. 快速开始
+
+                正文一。
+
+                ## 1. 快速开始
+
+                正文二。
+                """;
+        List<MarkdownChunker.Chunk> chunks = MarkdownChunker.chunk(markdown, 500, 60);
+
+        assertThat(chunks).hasSize(2);
+        assertThat(chunks.get(0).anchor()).isEqualTo("1-快速开始");
+        assertThat(chunks.get(1).anchor()).isEqualTo("1-快速开始-1");
     }
 
     @Test

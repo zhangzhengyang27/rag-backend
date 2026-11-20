@@ -1,7 +1,10 @@
 package org.example.service;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
+import java.util.Map;
 import java.util.regex.Pattern;
 
 /**
@@ -36,7 +39,7 @@ public final class MarkdownChunker {
      * 分块结果。tokenCount 为估算值（CJK 按 1 字 1 token，其他按 4 字符 1 token），
      * 只用于缓存/预算，不追求与真实 tokenizer 完全一致。
      */
-    public record Chunk(String text, String headingPath, String heading, int headingOrdinal,
+    public record Chunk(String text, String headingPath, String heading, String anchor, int headingOrdinal,
                         String chunkType, String codeLang, int tokenCount) {
     }
 
@@ -72,6 +75,8 @@ public final class MarkdownChunker {
         boolean inCode = false;
         char fenceChar = '`';
         String codeLang = "";
+        String headingAnchor = "";
+        HeadingSlugger slugger = new HeadingSlugger();
 
         for (int i = start; i < lines.length; i++) {
             String line = lines[i];
@@ -79,7 +84,7 @@ public final class MarkdownChunker {
 
             if (inCode) {
                 if (isClosingFence(trimmed, fenceChar)) {
-                    flushCode(code, codeLang, headingPath, heading, currentOrdinal, max, out);
+                    flushCode(code, codeLang, headingPath, heading, headingAnchor, currentOrdinal, max, out);
                     inCode = false;
                     codeLang = "";
                 } else {
@@ -89,7 +94,7 @@ public final class MarkdownChunker {
             }
 
             if (isOpeningFence(trimmed)) {
-                flushProse(prose, headingPath, heading, currentOrdinal, max, ov, out);
+                flushProse(prose, headingPath, heading, headingAnchor, currentOrdinal, max, ov, out);
                 inCode = true;
                 fenceChar = trimmed.charAt(0);
                 codeLang = fenceInfo(trimmed);
@@ -97,9 +102,10 @@ public final class MarkdownChunker {
             }
 
             if (isAtxHeading(trimmed)) {
-                flushProse(prose, headingPath, heading, currentOrdinal, max, ov, out);
+                flushProse(prose, headingPath, heading, headingAnchor, currentOrdinal, max, ov, out);
                 int level = headingLevel(trimmed);
                 String text = headingText(trimmed);
+                String anchor = slugger.slug(text);
                 while (!headingLevels.isEmpty()
                         && headingLevels.get(headingLevels.size() - 1) >= level) {
                     headingLevels.remove(headingLevels.size() - 1);
@@ -110,6 +116,7 @@ public final class MarkdownChunker {
                 headingOrdinal++;
                 headingPath = String.join(" > ", headingTexts);
                 heading = text;
+                headingAnchor = anchor;
                 currentOrdinal = headingOrdinal;
                 continue;
             }
@@ -127,9 +134,9 @@ public final class MarkdownChunker {
 
         // 未闭合的围栏：按代码块收尾，避免内容整体丢失
         if (inCode) {
-            flushCode(code, codeLang, headingPath, heading, currentOrdinal, max, out);
+            flushCode(code, codeLang, headingPath, heading, headingAnchor, currentOrdinal, max, out);
         }
-        flushProse(prose, headingPath, heading, currentOrdinal, max, ov, out);
+        flushProse(prose, headingPath, heading, headingAnchor, currentOrdinal, max, ov, out);
         return out;
     }
 
@@ -216,7 +223,7 @@ public final class MarkdownChunker {
     }
 
     /** 正文块：清洗行内 Markdown 后按 maxChars/overlap 切分。 */
-    private static void flushProse(StringBuilder prose, String headingPath, String heading,
+    private static void flushProse(StringBuilder prose, String headingPath, String heading, String anchor,
                                    int ordinal, int max, int overlap, List<Chunk> out) {
         String text = cleanInline(prose.toString()).trim();
         prose.setLength(0);
@@ -224,7 +231,7 @@ public final class MarkdownChunker {
             return;
         }
         for (String piece : splitText(text, max, overlap)) {
-            out.add(new Chunk(piece, headingPath, heading, ordinal, TYPE_TEXT, null,
+            out.add(new Chunk(piece, headingPath, heading, anchor, ordinal, TYPE_TEXT, null,
                     estimateTokens(piece)));
         }
     }
@@ -234,7 +241,7 @@ public final class MarkdownChunker {
      * 这样 500 字的围栏代码不会被静默丢弃，也不会把整篇文档的 embedding 撑爆。
      */
     private static void flushCode(StringBuilder code, String codeLang, String headingPath,
-                                  String heading, int ordinal, int max, List<Chunk> out) {
+                                  String heading, String anchor, int ordinal, int max, List<Chunk> out) {
         String text = code.toString().stripTrailing();
         code.setLength(0);
         if (text.isBlank()) {
@@ -242,40 +249,65 @@ public final class MarkdownChunker {
         }
         int limit = Math.max(200, max);
         if (text.length() <= limit) {
-            addCode(out, text, codeLang, headingPath, heading, ordinal);
+            addCode(out, text, codeLang, headingPath, heading, anchor, ordinal);
             return;
         }
         StringBuilder part = new StringBuilder();
         for (String line : text.split("\n", -1)) {
             if (part.length() > 0 && part.length() + line.length() + 1 > limit) {
-                addCode(out, part.toString().stripTrailing(), codeLang, headingPath, heading, ordinal);
+                addCode(out, part.toString().stripTrailing(), codeLang, headingPath, heading, anchor, ordinal);
                 part.setLength(0);
             }
             if (line.length() > limit) {
                 if (part.length() > 0) {
-                    addCode(out, part.toString().stripTrailing(), codeLang, headingPath, heading, ordinal);
+                    addCode(out, part.toString().stripTrailing(), codeLang, headingPath, heading, anchor, ordinal);
                     part.setLength(0);
                 }
                 for (int i = 0; i < line.length(); i += limit) {
                     addCode(out, line.substring(i, Math.min(line.length(), i + limit)),
-                            codeLang, headingPath, heading, ordinal);
+                            codeLang, headingPath, heading, anchor, ordinal);
                 }
             } else {
                 part.append(line).append('\n');
             }
         }
         if (part.length() > 0) {
-            addCode(out, part.toString().stripTrailing(), codeLang, headingPath, heading, ordinal);
+            addCode(out, part.toString().stripTrailing(), codeLang, headingPath, heading, anchor, ordinal);
         }
     }
 
     private static void addCode(List<Chunk> out, String text, String codeLang, String headingPath,
-                                String heading, int ordinal) {
+                                String heading, String anchor, int ordinal) {
         if (text.isBlank()) {
             return;
         }
-        out.add(new Chunk(text, headingPath, heading, ordinal, TYPE_CODE,
+        out.add(new Chunk(text, headingPath, heading, anchor, ordinal, TYPE_CODE,
                 codeLang == null || codeLang.isBlank() ? null : codeLang, estimateTokens(text)));
+    }
+
+    /**
+     * 标题锚点生成器：近似 github-slugger / rehype-slug 的行为，供前端 #fragment 直接跳转。
+     * 只保留字母、数字、CJK、空格和连字符；空格转连字符，同标题按出现顺序加 -1/-2。
+     * 与前端 extractToc 的完全一致性仍以文档页实际 slug 为准；这里生成的是稳定可用的 best-effort 锚点。
+     */
+    static final class HeadingSlugger {
+        private final Map<String, Integer> seen = new HashMap<>();
+
+        String slug(String raw) {
+            String text = raw == null ? "" : raw;
+            // 行内代码/链接/图片只保留可见文本；粗体/斜体标记去掉
+            text = text.replaceAll("`([^`]*)`", "$1")
+                    .replaceAll("!\\[[^\\]]*\\]\\([^)]*\\)", "")
+                    .replaceAll("\\[([^\\]]*)\\]\\([^)]*\\)", "$1")
+                    .replaceAll("[*_~]+", "");
+            String base = text.toLowerCase(Locale.ROOT)
+                    .replaceAll("[^\\p{L}\\p{N}\\- ]", "")
+                    .trim()
+                    .replaceAll("\\s+", "-")
+                    .replaceAll("-+", "-");
+            int n = seen.merge(base, 1, Integer::sum) - 1;
+            return n == 0 ? base : base + "-" + n;
+        }
     }
 
     /**

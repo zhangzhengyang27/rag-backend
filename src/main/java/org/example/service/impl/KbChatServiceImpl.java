@@ -250,6 +250,7 @@ public class KbChatServiceImpl implements KbChatService {
                             scopedDoc.get().getId(), pathFilter, text.length());
                 }
             }
+            markCitationIds(sources);
             sourcesJson = toJson(sources);
 
             // 相关度判定（RelevanceChecker 拒答）：
@@ -441,6 +442,14 @@ public class KbChatServiceImpl implements KbChatService {
         return line.length() <= 30 ? line : line.substring(0, 30) + "…";
     }
 
+    /** 给问答溯源命中编号：与回答中的 [n] 一一对应，顺序即 sources 事件顺序。 */
+    private void markCitationIds(List<KbChunkHit> sources) {
+        if (sources == null) return;
+        for (int i = 0; i < sources.size(); i++) {
+            sources.get(i).setCitationId(String.valueOf(i + 1));
+        }
+    }
+
     private String toJson(Object value) {
         try {
             return objectMapper.writeValueAsString(value);
@@ -461,7 +470,7 @@ public class KbChatServiceImpl implements KbChatService {
         StringBuilder sb = new StringBuilder();
         int idx = 1;
         for (KbChunkHit hit : sources) {
-            sb.append("[").append(idx++).append("] 《")
+            sb.append("[").append(hit.getCitationId() == null ? idx : hit.getCitationId()).append("] 《")
                     .append(hit.getTitle() == null ? "" : hit.getTitle()).append("》");
             if (hit.getFilePath() != null && !hit.getFilePath().isBlank()) {
                 sb.append("（").append(hit.getFilePath()).append("）");
