@@ -107,7 +107,9 @@
       "hit_rate_pct": 17.57,
       "saved_tokens": 6926,
       "empty_answer_rows": 5,
-      "nonempty_hit_rate_pct": 18.84
+      "nonempty_hit_rate_pct": 18.84,
+      "as_of": "2026-11-20T10:07:00+08:00",
+      "note": "验收统计截止 10:07；之后的开发回归流量不计入该累计口径。"
     },
     "gate_note": "全站累计 17.57% < 20%；可缓存的重复问题 8/8 命中（8–166ms）。冷启动、空回答和历史请求拉低整体口径，门禁指标需按稳定流量继续观测。",
     "effective_evidence": "baseline/p1-acceptance-20261120/cache-effective.json"
