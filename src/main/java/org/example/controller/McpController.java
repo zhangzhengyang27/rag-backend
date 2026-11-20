@@ -145,6 +145,7 @@ public class McpController {
                 int topK = Math.max(1, Math.min(10, asInt(args.get("topK"), 5)));
                 List<KbChunkHit> hits = kbSearchService.searchAs(
                         List.of(PUBLIC_LIBRARY), SecurityUtil.currentUsername(), query, topK, null, null, null, null);
+                for (int i = 0; i < hits.size(); i++) hits.get(i).setCitationId(String.valueOf(i + 1));
                 yield toolResult(id, hits.stream().map(this::searchItem).toList());
             }
             case "fetch_doc" -> {
