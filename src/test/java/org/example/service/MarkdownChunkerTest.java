@@ -183,6 +183,34 @@ class MarkdownChunkerTest {
         assertThat(chunks).anySatisfy(chunk -> {
             assertThat(chunk.text()).contains("| 类型 | box-sizing | 宽度含义 |");
             assertThat(chunk.text()).contains("| 替代盒模型 | border-box | 含 padding/border |");
+            // 表格语义：类型标记为 table，首行表头单独保留，供检索与展示使用。
+            assertThat(chunk.chunkType()).isEqualTo(MarkdownChunker.TYPE_TABLE);
+            assertThat(chunk.tableHeader()).contains("类型").contains("box-sizing");
+        });
+    }
+
+    @Test
+    void adjacentTablesAreNotMerged() {
+        String markdown = """
+                # 两张表
+
+                | A | B |
+                | --- | --- |
+                | a1 | b1 |
+
+                | C | D |
+                | --- | --- |
+                | c1 | d1 |
+                """;
+        List<MarkdownChunker.Chunk> chunks = MarkdownChunker.chunk(markdown, 500, 60);
+
+        // 空行是表格结束边界；两张表必须各自成为独立 table 块，而不是合并成一个。
+        assertThat(chunks).filteredOn(c -> c.chunkType().equals(MarkdownChunker.TYPE_TABLE)).hasSize(2);
+        assertThat(chunks).anySatisfy(c -> {
+            assertThat(c.tableHeader()).contains("A").doesNotContain("C");
+        });
+        assertThat(chunks).anySatisfy(c -> {
+            assertThat(c.tableHeader()).contains("C").doesNotContain("A");
         });
     }
 

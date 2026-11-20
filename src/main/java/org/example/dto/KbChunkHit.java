@@ -46,6 +46,18 @@ public class KbChunkHit {
     /** 代码语言（chunkType=code 时记录围栏语言，如 java/bash） */
     private String codeLang;
 
+    /** 表格首行表头（chunkType=table 时），前端可据此渲染表格来源提示 */
+    private String tableHeader;
+
+    /** 父级章节 ID（kb_section.id；父子分块的父级，可能为空） */
+    private Long parentId;
+
+    /** 父级章节标题路径，用于回答时补充上下文 */
+    private String parentHeadingPath;
+
+    /** 父级章节文本（截断后注入 prompt，避免把整章都塞进上下文） */
+    private String parentContext;
+
     /** 引用编号（从 1 开始，与回答中的 [n] 一一对应；仅问答 sources 事件填充） */
     private String citationId;
 }

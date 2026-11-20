@@ -18,6 +18,8 @@ public class KbLintReportView {
     private int linkCount;
     private int brokenLinkCount;
     private int duplicateTitleCount;
+    /** 断链按责任人聚合：用于把 64 条问题分派到团队队列 */
+    private java.util.Map<String, Integer> brokenByOwner;
     private List<KbLintIssueView> issues;
     private String prSummary;
     private Date scannedAt;

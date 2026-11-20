@@ -19,4 +19,6 @@ public class KbLintIssueView {
     private String filePath;
     private String detail;
     private String suggestion;
+    /** 文档责任人/团队队列；空表示尚未分派 */
+    private String owner;
 }

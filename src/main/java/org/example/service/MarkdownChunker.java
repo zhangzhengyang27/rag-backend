@@ -28,6 +28,7 @@ public final class MarkdownChunker {
 
     public static final String TYPE_TEXT = "text";
     public static final String TYPE_CODE = "code";
+    public static final String TYPE_TABLE = "table";
 
     /** 句末标点后切句；中英文标点都覆盖，保留标点本身。 */
     private static final Pattern SENTENCE_END = Pattern.compile("(?<=[。！？；.!?;])");
@@ -40,7 +41,7 @@ public final class MarkdownChunker {
      * 只用于缓存/预算，不追求与真实 tokenizer 完全一致。
      */
     public record Chunk(String text, String headingPath, String heading, String anchor, int headingOrdinal,
-                        String chunkType, String codeLang, int tokenCount) {
+                        String chunkType, String codeLang, String tableHeader, int tokenCount) {
     }
 
     /**
@@ -95,7 +96,8 @@ public final class MarkdownChunker {
             }
 
             if (isOpeningFence(trimmed)) {
-                flushProse(prose, headingPath, heading, headingAnchor, currentOrdinal, max, ov, out);
+                flushProse(prose, headingPath, heading, headingAnchor, currentOrdinal, max, ov, inTable, out);
+                inTable = false;
                 inCode = true;
                 fenceChar = trimmed.charAt(0);
                 codeLang = fenceInfo(trimmed);
@@ -105,12 +107,12 @@ public final class MarkdownChunker {
             // 表格行必须整段保留：先冲刷前面的正文，再把连续 | 行收进同一段落，
             // 避免表格被空行/句末标点切碎后丢失列语义。
             if (inTable && !isTableRow(trimmed)) {
-                flushProse(prose, headingPath, heading, headingAnchor, currentOrdinal, max, ov, out);
+                flushProse(prose, headingPath, heading, headingAnchor, currentOrdinal, max, ov, true, out);
                 inTable = false;
             }
             if (isTableRow(trimmed)) {
                 if (!inTable) {
-                    flushProse(prose, headingPath, heading, headingAnchor, currentOrdinal, max, ov, out);
+                    flushProse(prose, headingPath, heading, headingAnchor, currentOrdinal, max, ov, false, out);
                     inTable = true;
                 }
                 prose.append(line).append('\n');
@@ -118,7 +120,8 @@ public final class MarkdownChunker {
             }
 
             if (isAtxHeading(trimmed)) {
-                flushProse(prose, headingPath, heading, headingAnchor, currentOrdinal, max, ov, out);
+                flushProse(prose, headingPath, heading, headingAnchor, currentOrdinal, max, ov, inTable, out);
+                inTable = false;
                 int level = headingLevel(trimmed);
                 String text = headingText(trimmed);
                 String anchor = slugger.slug(text);
@@ -140,7 +143,8 @@ public final class MarkdownChunker {
             // Setext 标题：正文行紧邻 ===/--- 下划线时提升为一级/二级标题，
             // 兼容老文档与手写笔记（ATX # 之外的另一种常见写法）。
             if (i + 1 < lines.length && isSetextUnderline(lines[i + 1].trim())) {
-                flushProse(prose, headingPath, heading, headingAnchor, currentOrdinal, max, ov, out);
+                flushProse(prose, headingPath, heading, headingAnchor, currentOrdinal, max, ov, inTable, out);
+                inTable = false;
                 int level = lines[i + 1].trim().charAt(0) == '=' ? 1 : 2;
                 String text = trimmed;
                 String anchor = slugger.slug(text);
@@ -161,6 +165,11 @@ public final class MarkdownChunker {
             }
 
             if (trimmed.isEmpty()) {
+                // 空行是表格结束的边界：先 flush，避免两张相邻表格被合并成一个 table 块。
+                if (inTable) {
+                    flushProse(prose, headingPath, heading, headingAnchor, currentOrdinal, max, ov, true, out);
+                    inTable = false;
+                }
                 // 段落分隔保留为空行；不在这里 flush，避免短段落被切成一堆碎片
                 if (prose.length() > 0 && !prose.toString().endsWith("\n\n")) {
                     prose.append("\n\n");
@@ -175,7 +184,7 @@ public final class MarkdownChunker {
         if (inCode) {
             flushCode(code, codeLang, headingPath, heading, headingAnchor, currentOrdinal, max, out);
         }
-        flushProse(prose, headingPath, heading, headingAnchor, currentOrdinal, max, ov, out);
+        flushProse(prose, headingPath, heading, headingAnchor, currentOrdinal, max, ov, inTable, out);
         return out;
     }
 
@@ -285,16 +294,26 @@ public final class MarkdownChunker {
 
     /** 正文块：清洗行内 Markdown 后按 maxChars/overlap 切分。 */
     private static void flushProse(StringBuilder prose, String headingPath, String heading, String anchor,
-                                   int ordinal, int max, int overlap, List<Chunk> out) {
+                                   int ordinal, int max, int overlap, boolean table, List<Chunk> out) {
         String text = cleanInline(prose.toString()).trim();
         prose.setLength(0);
         if (text.isEmpty()) {
             return;
         }
+        // 表格块保留整段（含管道符），tableHeader 取首行；正文/代码块该字段为空。
+        String tableHeader = table ? firstTableHeader(text) : null;
+        String type = table ? TYPE_TABLE : TYPE_TEXT;
         for (String piece : splitText(text, max, overlap)) {
-            out.add(new Chunk(piece, headingPath, heading, anchor, ordinal, TYPE_TEXT, null,
-                    estimateTokens(piece)));
+            out.add(new Chunk(piece, headingPath, heading, anchor, ordinal, type, null,
+                    tableHeader, estimateTokens(piece)));
         }
+    }
+
+    /** 表格首行即表头；截到 1024，防止异常超宽表撑爆列。 */
+    private static String firstTableHeader(String text) {
+        int newline = text.indexOf('\n');
+        String header = newline >= 0 ? text.substring(0, newline) : text;
+        return header.length() <= 1024 ? header : header.substring(0, 1024);
     }
 
     /**
@@ -343,7 +362,7 @@ public final class MarkdownChunker {
             return;
         }
         out.add(new Chunk(text, headingPath, heading, anchor, ordinal, TYPE_CODE,
-                codeLang == null || codeLang.isBlank() ? null : codeLang, estimateTokens(text)));
+                codeLang == null || codeLang.isBlank() ? null : codeLang, null, estimateTokens(text)));
     }
 
     /**

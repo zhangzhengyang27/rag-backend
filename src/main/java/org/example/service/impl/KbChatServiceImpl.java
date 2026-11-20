@@ -533,6 +533,11 @@ public class KbChatServiceImpl implements KbChatService {
      * 把 service 层已检索命中片段组装为可读证据文本，直接作为"首轮检索结果"注入模型，
      * 避免模型再经 firstSearch 工具重复全量检索（消除重复首轮检索）。片段即最终会推给前端的溯源集。
      */
+    /** 父级上下文注入上限 800 字：只补“短子块”缺失的定义/前置说明。 */
+    private String truncateParentContext(String text) {
+        return text.length() <= 800 ? text : text.substring(0, 800);
+    }
+
     private String buildSourcesContext(List<KbChunkHit> sources) {
         if (sources == null || sources.isEmpty()) {
             return "（未检索到知识库证据片段）";
@@ -548,7 +553,18 @@ public class KbChatServiceImpl implements KbChatService {
             if (hit.getScore() != null) {
                 sb.append("  相关度≈").append(String.format("%.3f", hit.getScore()));
             }
-            sb.append("\n").append(hit.getText() == null ? "" : hit.getText()).append("\n\n");
+            if (hit.getParentHeadingPath() != null && !hit.getParentHeadingPath().isBlank()) {
+                sb.append("｜章节：").append(hit.getParentHeadingPath());
+            }
+            String evidence = hit.getText() == null ? "" : hit.getText();
+            sb.append("\n").append(evidence);
+            // 子块很短时（表格/一句话定义），补父级章节上下文，避免模型只看到孤立命中；
+            // 长子块本身已含前后文，不再重复塞父块，控制 prompt 体积。
+            if (hit.getParentContext() != null && !hit.getParentContext().isBlank()
+                    && evidence.length() < 160) {
+                sb.append("\n章节上下文：").append(truncateParentContext(hit.getParentContext()));
+            }
+            sb.append("\n\n");
         }
         return sb.toString();
     }

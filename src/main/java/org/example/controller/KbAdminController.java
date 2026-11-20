@@ -74,6 +74,12 @@ public class KbAdminController {
     @Autowired
     private org.example.service.KbGitSyncService kbGitSyncService;
 
+    @Autowired
+    private org.example.service.KbSectionBackfillService kbSectionBackfillService;
+
+    @Autowired
+    private org.example.service.KbDeepDecisionService kbDeepDecisionService;
+
     private String currentUserId() {
         // principal 为 record 类型时 getName() 返回 toString()，必须显式取 username
         return org.example.security.SecurityUtil.currentUsername();
@@ -169,6 +175,21 @@ public class KbAdminController {
         return kbGovernanceService.summary(resolveLibraryId(), staleDays);
     }
 
+    /** 深度检索（GraphRAG/多跳）可选门禁：用评测/延迟数据判断是否值得立项。 */
+    @GetMapping("/deep/gate")
+    public java.util.Map<String, Object> deepGate() {
+        return kbDeepDecisionService.gate();
+    }
+
+    /** 父子分块父级回填：只聚合 section + 回填 parent_id，不重算向量。 */
+    @PostMapping("/sections/backfill")
+    public java.util.Map<String, Object> backfillSections() {
+        var result = kbSectionBackfillService.backfill();
+        auditLogService.record(resolveLibraryId(), currentUserId(), "SECTION_BACKFILL", "SECTION", null,
+                "父子分块父级回填：sections=" + result.sections() + ", chunks=" + result.chunks());
+        return java.util.Map.of("sections", result.sections(), "chunks", result.chunks());
+    }
+
     /** GitHub 增量同步：浅克隆/更新仓库后复用目录导入，返回导入任务 ID。 */
     @PostMapping("/sources/github/sync")
     public org.example.vo.KbGitSyncView syncGithub(
@@ -198,6 +219,17 @@ public class KbAdminController {
     }
 
     /** 维护文档责任人与复核日期；owner 传空串表示清空。 */
+    /** 按一级目录批量分派责任人到团队队列；人工 owner 不覆盖。 */
+    @PostMapping("/governance/assign-owners")
+    public java.util.Map<String, Integer> assignGovernanceOwners(
+            @RequestParam(required = false) String libraryId) {
+        String targetLibrary = libraryId == null || libraryId.isBlank() ? resolveLibraryId() : libraryId;
+        var result = kbGovernanceService.assignOwnersByCategory(targetLibrary);
+        auditLogService.record(targetLibrary, currentUserId(), "GOVERNANCE_ASSIGN_OWNERS", "DOCUMENT", null,
+                "按目录批量分派责任人：assigned=" + result.get("assigned") + ", kept=" + result.get("kept"));
+        return result;
+    }
+
     @PutMapping("/governance/documents/{id}")
     public Map<String, Object> updateGovernance(
             @PathVariable("id") Long id,

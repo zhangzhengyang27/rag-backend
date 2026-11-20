@@ -90,6 +90,7 @@ public class KbContentLintServiceImpl implements KbContentLintService {
                         .filePath(d.getFilePath())
                         .detail("链接目标不存在：" + raw)
                         .suggestion("确认目标是否改名/移动；若已迁移，把 " + raw + " 更新为实际相对路径，或删除该链接")
+                        .owner(d.getOwner())
                         .build());
             }
         }
@@ -120,6 +121,7 @@ public class KbContentLintServiceImpl implements KbContentLintService {
                         .filePath(d.getFilePath())
                         .detail("同名文档 " + group.size() + " 篇：" + paths)
                         .suggestion("确认是否为同一主题的重复稿；保留一篇并在另一篇顶部加 canonical 跳转，或改用更精确的标题")
+                        .owner(d.getOwner())
                         .build());
             }
         }
@@ -128,6 +130,13 @@ public class KbContentLintServiceImpl implements KbContentLintService {
         broken.stream().limit(cap).forEach(issues::add);
         if (issues.size() < cap) {
             duplicates.stream().limit(cap - issues.size()).forEach(issues::add);
+        }
+
+        // 断链责任人聚合：同一团队队列的问题一次派给一个人，避免 64 条逐条指派。
+        Map<String, Integer> brokenByOwner = new java.util.TreeMap<>();
+        for (KbLintIssueView issue : broken) {
+            String owner = issue.getOwner() == null || issue.getOwner().isBlank() ? "UNASSIGNED" : issue.getOwner();
+            brokenByOwner.merge(owner, 1, Integer::sum);
         }
 
         String prSummary = buildPrSummary(broken, duplicates);
@@ -139,6 +148,7 @@ public class KbContentLintServiceImpl implements KbContentLintService {
                 .linkCount(linkCount)
                 .brokenLinkCount(broken.size())
                 .duplicateTitleCount(duplicates.size())
+                .brokenByOwner(brokenByOwner)
                 .issues(issues)
                 .prSummary(prSummary)
                 .scannedAt(new Date())

@@ -6,6 +6,7 @@ import org.example.repository.KnowledgeDocumentRepository;
 import org.example.service.KbGovernanceService;
 import org.example.vo.KbGovernanceIssueView;
 import org.example.vo.KbGovernanceSummaryView;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -33,9 +34,11 @@ public class KbGovernanceServiceImpl implements KbGovernanceService {
     private static final long DAY_MS = 24L * 60 * 60 * 1000;
 
     private final KnowledgeDocumentRepository documentRepository;
+    private final JdbcTemplate jdbcTemplate;
 
-    public KbGovernanceServiceImpl(KnowledgeDocumentRepository documentRepository) {
+    public KbGovernanceServiceImpl(KnowledgeDocumentRepository documentRepository, JdbcTemplate jdbcTemplate) {
         this.documentRepository = documentRepository;
+        this.jdbcTemplate = jdbcTemplate;
     }
 
     @Override
@@ -89,6 +92,45 @@ public class KbGovernanceServiceImpl implements KbGovernanceService {
         documentRepository.save(doc);
         log.info("知识治理更新 - docId: {}, owner: {}, reviewDueDate: {}, operator: {}",
                 docId, doc.getOwner(), reviewDueDate, operator);
+    }
+
+    /**
+     * 责任人的现实口径：先分派到“团队队列”，而不是编造具体人名。
+     * 分类来自 docs 一级目录；人工设置过的 owner 一律不覆盖，保证后续可逐篇认领到个人。
+     * 这样治理页的 missingOwner 立即归零，64 条断链也能按同一队列分派。
+     */
+    @Override
+    @Transactional
+    public Map<String, Integer> assignOwnersByCategory(String libraryId) {
+        // 先统计“已有人工责任人”的数量，再执行 UPDATE；否则更新后所有行都有 owner，
+        // 统计会把本次分派也算成“保留”，返回值失真。
+        int kept = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM kb_document WHERE library_id = ? AND owner IS NOT NULL AND owner <> ''",
+                Integer.class, libraryId);
+        int assigned = jdbcTemplate.update("""
+                UPDATE kb_document
+                SET owner = CASE
+                    WHEN file_path LIKE '01-Java/%' THEN 'java-team'
+                    WHEN file_path LIKE '02-Node/%' THEN 'node-team'
+                    WHEN file_path LIKE '03-Python/%' THEN 'python-team'
+                    WHEN file_path LIKE '04-前端/%' THEN 'frontend-team'
+                    WHEN file_path LIKE '05-后端/%' THEN 'backend-team'
+                    WHEN file_path LIKE '06-安全/%' THEN 'security-team'
+                    WHEN file_path LIKE '07-架构与工程/%' THEN 'architecture-team'
+                    WHEN file_path LIKE '08-测试/%' THEN 'qa-team'
+                    WHEN file_path LIKE '09-管理/%' THEN 'management-team'
+                    WHEN file_path LIKE '10-计算机基础/%' THEN 'fundamentals-team'
+                    WHEN file_path LIKE '11-设计模式/%' THEN 'architecture-team'
+                    WHEN file_path LIKE '12-运维/%' THEN 'ops-team'
+                    WHEN file_path LIKE '13-项目文档/%' THEN 'project-team'
+                    WHEN file_path LIKE '14-组件库专栏/%' THEN 'frontend-team'
+                    WHEN file_path LIKE '15-XiaoyeUI源码专栏/%' THEN 'frontend-team'
+                    ELSE 'content-team'
+                END
+                WHERE library_id = ? AND (owner IS NULL OR owner = '')
+                """, libraryId);
+        log.info("责任人批量分派 - libraryId: {}, assigned: {}, kept: {}", libraryId, assigned, kept);
+        return Map.of("assigned", assigned, "kept", kept);
     }
 
     private ScanResult scan(List<KnowledgeDocumentEntity> docs, int staleDays) {

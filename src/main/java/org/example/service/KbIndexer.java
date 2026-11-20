@@ -9,8 +9,10 @@ import lombok.extern.slf4j.Slf4j;
 import org.example.entity.KbDocumentStatus;
 import org.example.entity.KnowledgeChunkEntity;
 import org.example.entity.KnowledgeDocumentEntity;
+import org.example.entity.KnowledgeSectionEntity;
 import org.example.repository.KnowledgeChunkRepository;
 import org.example.repository.KnowledgeDocumentRepository;
+import org.example.repository.KnowledgeSectionRepository;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -36,6 +38,7 @@ public class KbIndexer {
     private final EmbeddingStore<TextSegment> kbEmbeddingStore;
     private final KnowledgeChunkRepository chunkRepository;
     private final KnowledgeDocumentRepository documentRepository;
+    private final KnowledgeSectionRepository sectionRepository;
     private final TransactionTemplate transactionTemplate;
     private final int maxSegmentSize;
     private final int maxOverlapSize;
@@ -44,12 +47,14 @@ public class KbIndexer {
                      EmbeddingStore<TextSegment> kbEmbeddingStore,
                      KnowledgeChunkRepository chunkRepository,
                      KnowledgeDocumentRepository documentRepository,
+                     KnowledgeSectionRepository sectionRepository,
                      PlatformTransactionManager transactionManager,
                      org.example.config.KbConfig kbConfig) {
         this.embeddingModel = embeddingModel;
         this.kbEmbeddingStore = kbEmbeddingStore;
         this.chunkRepository = chunkRepository;
         this.documentRepository = documentRepository;
+        this.sectionRepository = sectionRepository;
         this.transactionTemplate = new TransactionTemplate(transactionManager);
         this.maxSegmentSize = kbConfig.getChunkMaxSegmentSize();
         this.maxOverlapSize = kbConfig.getChunkMaxOverlapSize();
@@ -78,6 +83,13 @@ public class KbIndexer {
             documentRepository.save(doc);
         }
 
+        // 1.5 先按标题序号聚合父块文本：子块负责精准召回，父块只作章节上下文，不建向量。
+        Map<Integer, SectionDraft> sections = new java.util.LinkedHashMap<>();
+        for (MarkdownChunker.Chunk chunk : chunks) {
+            sections.computeIfAbsent(chunk.headingOrdinal(), key -> new SectionDraft(chunk))
+                    .append(chunk);
+        }
+
         // 2. 构建分块实体与向量 segment（暂存，待向量化拿到 vectorId 后统一落库）
         List<KnowledgeChunkEntity> entities = new ArrayList<>(chunks.size());
         List<TextSegment> segments = new ArrayList<>(chunks.size());
@@ -101,6 +113,7 @@ public class KbIndexer {
             entity.setHeadingOrdinal(chunk.headingOrdinal());
             entity.setChunkType(chunk.chunkType());
             entity.setCodeLang(codeLang);
+            entity.setTableHeader(chunk.tableHeader());
             entity.setTokenCount(chunk.tokenCount());
             entities.add(entity);
 
@@ -117,6 +130,7 @@ public class KbIndexer {
             meta.put("headingOrdinal", chunk.headingOrdinal());
             meta.put("chunkType", chunk.chunkType());
             meta.put("codeLang", codeLang == null ? "" : codeLang);
+            meta.put("tableHeader", chunk.tableHeader() == null ? "" : chunk.tableHeader());
             meta.put("tokenCount", chunk.tokenCount());
             segments.add(TextSegment.from(chunk.text(), Metadata.from(meta)));
         }
@@ -147,8 +161,33 @@ public class KbIndexer {
         // 6. DB 收敛到单个事务：清旧分块（归并更新）+ 写新分块 + 更新文档状态，避免中间态
         transactionTemplate.executeWithoutResult(status -> {
             if (doc.getId() != null) {
-                // 归并更新：清理旧分块（旧 Redis 向量已在上方删除）
+                // 归并更新：清理旧分块/旧 section（旧 Redis 向量已在上方删除）
                 chunkRepository.deleteByDocId(doc.getId());
+                sectionRepository.deleteByDocId(doc.getId());
+            }
+            // 父块先落库拿 ID，再给子块回填 parent_id；父块不写向量索引。
+            List<KnowledgeSectionEntity> sectionEntities = new ArrayList<>(sections.size());
+            for (Map.Entry<Integer, SectionDraft> entry : sections.entrySet()) {
+                SectionDraft draft = entry.getValue();
+                KnowledgeSectionEntity section = new KnowledgeSectionEntity();
+                section.setLibraryId(doc.getLibraryId());
+                section.setDocId(doc.getId());
+                section.setHeadingOrdinal(entry.getKey());
+                section.setHeadingPath(truncate(draft.headingPath, 512));
+                section.setAnchor(truncate(draft.anchor, 1024));
+                section.setText(truncate(draft.text.toString(), 20_000));
+                section.setChunkCount(draft.chunkCount);
+                section.setTokenCount(draft.tokenCount);
+                sectionEntities.add(section);
+            }
+            sectionRepository.saveAll(sectionEntities);
+            sectionRepository.flush();
+            Map<Integer, Long> sectionIds = new HashMap<>();
+            for (KnowledgeSectionEntity section : sectionEntities) {
+                sectionIds.put(section.getHeadingOrdinal(), section.getId());
+            }
+            for (KnowledgeChunkEntity entity : entities) {
+                entity.setParentId(sectionIds.get(entity.getHeadingOrdinal()));
             }
             chunkRepository.saveAll(entities);
             doc.setChunkCount(chunks.size());
@@ -158,6 +197,28 @@ public class KbIndexer {
         log.info("知识库文档已索引 - id: {}, title: {}, chunks: {}, codeChunks: {}",
                 doc.getId(), doc.getTitle(), chunks.size(),
                 chunks.stream().filter(c -> MarkdownChunker.TYPE_CODE.equals(c.chunkType())).count());
+    }
+
+    /** 章节草稿：只聚合子块文本与元数据，避免为父块再跑一次解析。 */
+    private static final class SectionDraft {
+        private final StringBuilder text = new StringBuilder();
+        private final String headingPath;
+        private final String anchor;
+        private int chunkCount;
+        private int tokenCount;
+
+        private SectionDraft(MarkdownChunker.Chunk first) {
+            this.headingPath = first.headingPath();
+            this.anchor = first.anchor();
+        }
+
+        private void append(MarkdownChunker.Chunk chunk) {
+            if (text.length() < 20_000) {
+                text.append(chunk.text()).append('\n');
+            }
+            chunkCount++;
+            tokenCount += chunk.tokenCount();
+        }
     }
 
     /** 按 DB 列宽截断，null 保持 null（用于标题路径/标题/代码语言）。 */

@@ -12,10 +12,12 @@ import org.example.config.KbConfig;
 import org.example.dto.KbChunkHit;
 import org.example.dto.SearchOptions;
 import org.example.entity.KnowledgeChunkEntity;
+import org.example.entity.KnowledgeSectionEntity;
 import org.example.entity.RetrievalTraceEntity;
 import org.example.entity.KnowledgeDocumentEntity;
 import org.example.repository.KnowledgeChunkRepository;
 import org.example.repository.KnowledgeDocumentRepository;
+import org.example.repository.KnowledgeSectionRepository;
 import org.example.repository.RetrievalTraceRepository;
 import org.example.service.KbSearchService;
 import org.example.service.RrfFuser;
@@ -56,6 +58,9 @@ public class KbSearchServiceImpl implements KbSearchService {
     private final org.example.service.DocumentInfoCache docCache;
     /** RediSearch BM25 关键词检索（中文分词索引），keyword-backend=redis 时启用 */
     private final org.example.search.RedisBm25KeywordSearch redisBm25KeywordSearch;
+    /** 章节父块：可选注入，缺失时检索仍可用（只是不扩展父级上下文）。 */
+    @Autowired(required = false)
+    private KnowledgeSectionRepository sectionRepository;
     private final boolean redisKeywordSearchEnabled;
 
     /**
@@ -217,6 +222,7 @@ public class KbSearchServiceImpl implements KbSearchService {
                     .headingOrdinal(toInteger(meta.get("headingOrdinal")))
                     .chunkType(defaultEmpty(toStringVal(meta.get("chunkType"))))
                     .codeLang(defaultEmpty(toStringVal(meta.get("codeLang"))))
+                    .tableHeader(defaultEmpty(toStringVal(meta.get("tableHeader"))))
                     .text(segment.text())
                     .score(match.score())
                     .source(RESULT_SOURCE_VECTOR)
@@ -469,6 +475,12 @@ public class KbSearchServiceImpl implements KbSearchService {
                         .headingOrdinal(src.getHeadingOrdinal())
                         .chunkType(src.getChunkType())
                         .codeLang(src.getCodeLang())
+                        .tableHeader(src.getTableHeader())
+                        // rerank 会重建命中对象，父子上下文/表头等新字段必须显式透传，
+                        // 否则召回时有、重排后又被丢掉（曾导致 parentContext 一直为 null）。
+                        .parentId(src.getParentId())
+                        .parentHeadingPath(src.getParentHeadingPath())
+                        .parentContext(src.getParentContext())
                         .build());
             }
             return reranked;
@@ -476,6 +488,14 @@ public class KbSearchServiceImpl implements KbSearchService {
             log.warn("语义重排失败，降级返回 RRF 融合结果 - err: {}", e.getMessage());
             return candidates.size() > topK ? candidates.subList(0, topK) : candidates;
         }
+    }
+
+    /** 父级上下文最多 2,000 字：足够补充定义/前后段，又不会把 5 条引用撑爆 prompt。 */
+    private String truncateSection(String text) {
+        if (text == null) {
+            return null;
+        }
+        return text.length() <= 2_000 ? text : text.substring(0, 2_000);
     }
 
     private String truncateForRerank(String text) {
@@ -529,7 +549,9 @@ public class KbSearchServiceImpl implements KbSearchService {
             boolean needsAnchorRefresh = hit.getAnchor() == null
                     || hit.getAnchor().isBlank()
                     || hit.getAnchor().chars().anyMatch(Character::isWhitespace);
-            if (hit.getChunkType() != null && !hit.getChunkType().isBlank() && !needsAnchorRefresh) {
+            // parentContext 是父子分块的新字段：旧命中也必须回查，不能用 chunkType 提前跳过。
+            if (hit.getChunkType() != null && !hit.getChunkType().isBlank()
+                    && !needsAnchorRefresh && hit.getParentContext() != null) {
                 continue;
             }
             chunkRepository.findByDocIdAndChunkIndex(hit.getDocId(), hit.getChunkIndex())
@@ -542,6 +564,19 @@ public class KbSearchServiceImpl implements KbSearchService {
                         hit.setHeadingOrdinal(chunk.getHeadingOrdinal());
                         hit.setChunkType(chunk.getChunkType());
                         hit.setCodeLang(chunk.getCodeLang());
+                        hit.setTableHeader(chunk.getTableHeader());
+                        hit.setParentId(chunk.getParentId());
+                        // 父级按 docId + ordinal 取，parent_id 只作关联记录；旧数据未回填时也能命中。
+                        if (sectionRepository != null && chunk.getHeadingOrdinal() != null) {
+                            KnowledgeSectionEntity section = sectionRepository
+                                    .findByDocIdAndHeadingOrdinal(chunk.getDocId(), chunk.getHeadingOrdinal())
+                                    .orElse(null);
+                            if (section != null) {
+                                hit.setParentId(section.getId());
+                                hit.setParentHeadingPath(section.getHeadingPath());
+                                hit.setParentContext(truncateSection(section.getText()));
+                            }
+                        }
                     });
         }
     }

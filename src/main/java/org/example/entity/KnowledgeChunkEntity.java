@@ -54,13 +54,17 @@ public class KnowledgeChunkEntity extends BaseEntity {
     @Column(nullable = false)
     private Integer headingOrdinal = 0;
 
-    @Comment("分块类型：text=正文，code=代码块")
+    @Comment("分块类型：text=正文，code=代码块，table=表格")
     @Column(length = 16, nullable = false)
     private String chunkType = "text";
 
     @Comment("代码语言（chunkType=code 时记录围栏语言，如 java/bash）")
     @Column(length = 32)
     private String codeLang;
+
+    @Comment("表格首行表头（chunkType=table 时），保留列名便于检索与回答")
+    @Column(length = 1024)
+    private String tableHeader;
 
     @Comment("父分块ID（父子分块；Phase 3 启用，当前为空）")
     private Long parentId;

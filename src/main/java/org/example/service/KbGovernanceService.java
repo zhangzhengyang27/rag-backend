@@ -17,4 +17,10 @@ public interface KbGovernanceService {
 
     /** 更新文档责任人与复核日期；owner 为空表示清空责任人。 */
     void update(String libraryId, Long docId, String owner, Date reviewDueDate, String operator);
+
+    /**
+     * 按一级目录把空责任人批量分派到团队队列（不是具体个人）。
+     * 返回 {assigned, skipped}，已有人工 owner 的文档不覆盖。
+     */
+    java.util.Map<String, Integer> assignOwnersByCategory(String libraryId);
 }
