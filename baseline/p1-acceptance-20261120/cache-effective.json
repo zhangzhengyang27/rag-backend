@@ -1,0 +1,31 @@
+{
+  "generated_at": "2026-11-20T10:07:00+08:00",
+  "source": "langchain4j_rag.kb_chat_usage",
+  "overall": {
+    "rows": 74,
+    "cache_hits": 13,
+    "hit_rate_pct": 17.57,
+    "empty_answer_rows": 5,
+    "nonempty_rows": 69,
+    "nonempty_hit_rate_pct": 18.84,
+    "note": "全站累计口径；包含大量上线前/首次冷启动问题，以及 5 条无有效回答（未写入缓存）的记录。"
+  },
+  "repeat_probe": {
+    "questions": 8,
+    "second_pass_fast_hits": 7,
+    "second_pass_slow": [
+      "Webpack 的 Tree Shaking 原理？"
+    ],
+    "miss_reason": "首轮该题 SSE 在 2.7s 中断，answer_char_count=0，按设计不缓存空回答；第二轮生成 876 字有效回答后才写入缓存。",
+    "third_pass": {
+      "question": "Webpack 的 Tree Shaking 原理？",
+      "cache_hit": true,
+      "elapsed_ms": 166,
+      "answer_char_count": 876
+    },
+    "effective_hits": 8,
+    "effective_total": 8,
+    "effective_hit_rate_pct": 100.0
+  },
+  "conclusion": "缓存链路对可缓存的重复问题有效（8/8 命中，命中耗时 8–166ms）；17.57% 是混合了冷启动、空回答和历史请求的整体流量口径，尚未达到 20% 门禁。"
+}

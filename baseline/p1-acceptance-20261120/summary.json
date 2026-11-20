@@ -93,6 +93,8 @@
     },
     "repeat_suite_second_pass_fast_hits": 7,
     "repeat_suite_second_pass_total": 8,
+    "repeat_suite_effective_hits": 8,
+    "repeat_suite_effective_note": "Webpack Tree Shaking 首轮 SSE 中断、空回答按设计不缓存；第二轮生成有效回答后第三轮 166ms 命中，因此可缓存重复问题 8/8 命中。",
     "invalidation": {
       "scenario": "第 1 问 14.13s miss；第 2 问 0.25s exact hit；reindex doc 1106 后同问题 7.48s miss",
       "reindex_http": 200,
@@ -100,12 +102,15 @@
       "default_version": "2 -> 3（脚本打印的个人库版本保持 2；实际以 default 键为准）"
     },
     "usage": {
-      "rows": 73,
-      "cache_hits": 12,
-      "hit_rate_pct": 16.44,
-      "saved_tokens": 6926
+      "rows": 74,
+      "cache_hits": 13,
+      "hit_rate_pct": 17.57,
+      "saved_tokens": 6926,
+      "empty_answer_rows": 5,
+      "nonempty_hit_rate_pct": 18.84
     },
-    "gate_note": "全站累计 16.44% < 20%；重复问题第二遍 7/8 命中。冷启动/一次性问题占多数，门禁指标需按稳定流量继续观测。"
+    "gate_note": "全站累计 17.57% < 20%；可缓存的重复问题 8/8 命中（8–166ms）。冷启动、空回答和历史请求拉低整体口径，门禁指标需按稳定流量继续观测。",
+    "effective_evidence": "baseline/p1-acceptance-20261120/cache-effective.json"
   },
   "gaps": {
     "migration": "V5__content_gap.sql, applied 2026-11-20 09:24:54",
@@ -220,12 +225,12 @@
     },
     {
       "gate": "缓存命中 ≥20%",
-      "status": "未达标（累计 16.44%；重复问题第二遍 7/8）"
+      "status": "未达标（累计 17.57%；可缓存重复问题 8/8）"
     },
     {
       "gate": "缺口面板上线",
-      "status": "API/构建通过；登录态视觉验收未完成"
+      "status": "API/构建通过；未登录态已显示登录入口；管理员登录态视觉验收未完成"
     }
   ],
-  "overall": "功能闭环完成；门禁 4 项通过、1 项未达标（缓存命中 16.44%）、1 项部分通过（缺口页登录态视觉验收未完成）。"
+  "overall": "功能闭环完成；门禁 4 项通过、1 项未达标（缓存整体命中 17.57%）、1 项部分通过（缺口页管理员登录态视觉验收未完成）。"
 }
