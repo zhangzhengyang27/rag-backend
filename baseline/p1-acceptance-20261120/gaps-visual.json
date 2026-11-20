@@ -1,0 +1,42 @@
+{
+  "generated_at": "2026-11-20T11:08:00+08:00",
+  "surface": "http://localhost:4200/admin/gaps",
+  "auth": "真实管理员会话（本地测试账号 visual_admin_1120，已登录）",
+  "checks": [
+    {
+      "item": "未登录提示",
+      "result": "通过",
+      "detail": "无会话时显示“该页面需要管理员登录后查看”，并提供去登录入口，不再卡在加载中。"
+    },
+    {
+      "item": "列表",
+      "result": "通过",
+      "detail": "全部筛选下 4 条；统计卡为待处理 1、已分诊 2、已排期 1、已解决 0、近 7 天新增 4。"
+    },
+    {
+      "item": "详情抽屉",
+      "result": "通过",
+      "detail": "展示累计频次、状态、信号构成、主题、相关文档、样本对话、首次/最近、流转按钮、转评测表单和信号时间线。"
+    },
+    {
+      "item": "批量操作条",
+      "result": "通过",
+      "detail": "勾选 2 条后出现“已选 2 条 / 标记已分诊 / 忽略 / 取消选择”。"
+    },
+    {
+      "item": "搜索",
+      "result": "通过",
+      "detail": "输入 Webpack 后列表收敛为 1 条，清空后恢复 4 条。"
+    },
+    {
+      "item": "CSV 导出",
+      "result": "通过",
+      "detail": "浏览器下载 content-gaps.csv，296 字节，UTF-8 BOM，表头与筛选后的 Webpack 行正确。"
+    }
+  ],
+  "screenshots": {
+    "list": "baseline/p1-acceptance-20261120/gaps-admin.png",
+    "detail": "baseline/p1-acceptance-20261120/gaps-detail.png"
+  },
+  "note": "移动端布局尚未单独做视觉回归；桌面端 975x1008 视口验收通过。"
+}
