@@ -36,6 +36,11 @@ public interface KnowledgeDocumentRepository extends BaseRepository<KnowledgeDoc
     @Query("select d from KnowledgeDocumentEntity d where d.libraryId = :libraryId and (d.title like %:kw% or d.fileName like %:kw%)")
     Page<KnowledgeDocumentEntity> searchByKeywordInLibrary(@Param("libraryId") String libraryId, @Param("kw") String keyword, Pageable pageable);
 
+    /** 精确标题引用召回：查询文本中完整出现文档标题时，直接取该文档（用于“结合《A》和《B》”类多文档问题）。 */
+    @Query("select d from KnowledgeDocumentEntity d where d.libraryId in :libraryIds and locate(replace(d.title, ' ', ''), replace(:query, ' ', '')) > 0")
+    List<KnowledgeDocumentEntity> findTitleMentioned(@Param("libraryIds") java.util.Collection<String> libraryIds,
+                                                     @Param("query") String query, Pageable pageable);
+
     /** 空间内全部文档的 docId 集合（检索隔离基础）。 */
     @Query("select d.id from KnowledgeDocumentEntity d where d.libraryId = :libraryId")
     java.util.Set<Long> findDocIdsByLibrary(@Param("libraryId") String libraryId);

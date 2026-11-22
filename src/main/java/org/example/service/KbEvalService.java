@@ -27,6 +27,13 @@ public interface KbEvalService {
     KbEvalResult run(String libraryId, Integer limit, Integer topK);
 
     /**
+     * 运行多跳评测：只跑 MULTI_HOP 用例（自然问法，不含书名号标题引用）。
+     * 命中口径是 Top-K 必须同时召回全部期望文档，而不是“单块覆盖全部关键词”：
+     * 父子分块会把同一主题拆到多个块，块级全词命中会把正确的双文档召回误判为失败。
+     */
+    KbEvalResult runMultiHop(String libraryId, Integer limit, Integer topK);
+
+    /**
      * 检索 A/B 对比：同用例集、两组检索参数（基线/变体）各跑一遍，输出对照与差值。
      *
      * <p>两组互不影响：通过 {@link SearchOptions} 参数快照临时覆盖检索配置，

@@ -96,7 +96,11 @@ public class RedisBm25KeywordSearch {
     }
 
     public List<KbChunkHit> search(String indexName, List<String> tokens, int k) {
-        LinkedHashMap<String, KbChunkHit> merged = new LinkedHashMap<>();
+        // 关键：按“词条”保留每一路命中，再做轮转合并。不能把所有词条命中直接按累计分排序——
+        // 多概念问题里两个概念各自只命中一个词条时，会被同时命中常见词（如 spring/boot）的分块挤出。
+        List<List<String>> runKeys = new ArrayList<>();
+        Map<String, KbChunkHit> hitsByKey = new LinkedHashMap<>();
+        Map<String, Integer> hitCounts = new LinkedHashMap<>();
         for (String token : tokens) {
             String term = toQueryTerm(token);
             if (term.isEmpty()) {
@@ -109,42 +113,70 @@ public class RedisBm25KeywordSearch {
                     .limit(0, Math.max(1, k))
                     .returnFields(RETURN_FIELDS);
             SearchResult result = jedis.ftSearch(indexName, query);
+            List<String> keys = new ArrayList<>();
             for (Document doc : result.getDocuments()) {
                 RedisChunkDoc payload = parseChunkDoc(doc);
                 if (payload == null || payload.docId() == null || payload.chunkIndex() == null) {
                     continue;
                 }
                 String key = payload.docId() + "#" + payload.chunkIndex();
-                KbChunkHit hit = merged.get(key);
-                if (hit == null) {
-                    merged.put(key, KbChunkHit.builder()
-                            .docId(payload.docId())
-                            .chunkIndex(payload.chunkIndex())
-                            .title(defaultEmpty(payload.title()))
-                            .filePath(defaultEmpty(payload.filePath()))
-                            .siteSlug(defaultEmpty(payload.siteSlug()))
-                            .headingPath(defaultEmpty(payload.headingPath()))
-                            .heading(defaultEmpty(payload.heading()))
-                            .anchor(defaultEmpty(payload.heading()))
-                            .headingOrdinal(payload.headingOrdinal())
-                            .chunkType(defaultEmpty(payload.chunkType()))
-                            .codeLang(defaultEmpty(payload.codeLang()))
-                            .text(defaultEmpty(payload.text()))
-                            .score(1.0)
-                            .source(SOURCE_KEYWORD)
-                            .build());
-                } else {
-                    // 多词条命中同一分块：累加置信度（与 MySQL 路口径一致）
-                    hit.setScore((hit.getScore() == null ? 0 : hit.getScore()) + 1.0);
+                hitsByKey.putIfAbsent(key, KbChunkHit.builder()
+                        .docId(payload.docId())
+                        .chunkIndex(payload.chunkIndex())
+                        .title(defaultEmpty(payload.title()))
+                        .filePath(defaultEmpty(payload.filePath()))
+                        .siteSlug(defaultEmpty(payload.siteSlug()))
+                        .headingPath(defaultEmpty(payload.headingPath()))
+                        .heading(defaultEmpty(payload.heading()))
+                        .anchor(defaultEmpty(payload.heading()))
+                        .headingOrdinal(payload.headingOrdinal())
+                        .chunkType(defaultEmpty(payload.chunkType()))
+                        .codeLang(defaultEmpty(payload.codeLang()))
+                        .text(defaultEmpty(payload.text()))
+                        .source(SOURCE_KEYWORD)
+                        .build());
+                hitCounts.merge(key, 1, Integer::sum);
+                keys.add(key);
+            }
+            runKeys.add(keys);
+        }
+        LinkedHashMap<String, KbChunkHit> merged = new LinkedHashMap<>();
+        // 多词条共同命中的分块先入队：最高置信度信号优先，轮转只负责补足单概念覆盖。
+        hitCounts.entrySet().stream()
+                .filter(e -> e.getValue() >= 2)
+                .sorted((a, b) -> Integer.compare(b.getValue(), a.getValue()))
+                .forEach(e -> {
+                    KbChunkHit hit = hitsByKey.get(e.getKey());
+                    if (hit != null && merged.size() < Math.max(1, k)) {
+                        hit.setScore((double) e.getValue());
+                        merged.put(e.getKey(), hit);
+                    }
+                });
+        for (int rank = 0; merged.size() < Math.max(1, k); rank++) {
+            boolean progressed = false;
+            for (List<String> keys : runKeys) {
+                if (rank >= keys.size()) {
+                    continue;
+                }
+                String key = keys.get(rank);
+                if (merged.containsKey(key)) {
+                    continue;
+                }
+                KbChunkHit hit = hitsByKey.get(key);
+                if (hit != null) {
+                    hit.setScore((double) hitCounts.getOrDefault(key, 1));
+                    merged.put(key, hit);
+                    progressed = true;
+                }
+                if (merged.size() >= Math.max(1, k)) {
+                    break;
                 }
             }
+            if (!progressed) {
+                break;
+            }
         }
-        return merged.values().stream()
-                .sorted(Comparator.comparing((KbChunkHit h) -> h.getScore() == null ? 0d : h.getScore()).reversed()
-                        .thenComparing(KbChunkHit::getDocId)
-                        .thenComparing(KbChunkHit::getChunkIndex))
-                .limit(Math.max(1, k))
-                .collect(ArrayList::new, ArrayList::add, ArrayList::addAll);
+        return new ArrayList<>(merged.values());
     }
 
     /**

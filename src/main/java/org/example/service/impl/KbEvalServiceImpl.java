@@ -72,9 +72,91 @@ public class KbEvalServiceImpl implements KbEvalService {
                 .toList();
     }
 
+    @Override
+    public KbEvalResult runMultiHop(String libraryId, Integer limit, Integer topK) {
+        int topN = (topK == null || topK < 1) ? 10 : topK;
+        List<RagEvalCaseEntity> cases = evalCaseRepository.findByCaseTypeOrderByIdAsc("MULTI_HOP");
+        if (limit != null && limit > 0) {
+            cases = cases.stream().limit(limit).toList();
+        }
+        int hit = 0;
+        double mrrSum = 0;
+        double ndcgSum = 0;
+        double precisionSum = 0;
+        double recallSum = 0;
+        int ndcgCaseCount = 0;
+        List<KbEvalResult.CaseResult> details = new ArrayList<>(cases.size());
+        for (RagEvalCaseEntity c : cases) {
+            List<String> kws = splitKeywords(c.getExpectedKeywords());
+            List<Long> expectedDocIds = splitDocIds(c.getExpectedDocIds());
+            List<String> titles = new ArrayList<>();
+            List<KbChunkHit> results = null;
+            boolean ok = false;
+            int firstHitRank = 0;
+            double ndcg = 0;
+            try {
+                // 自然多跳先做确定性查询分解：原句 + 子查询各自召回，再在文档级 RRF。
+                // 这是“轻量多跳”验证：不引入 LLM 改写和全量 GraphRAG，仍能覆盖并列概念。
+                List<List<org.example.dto.KbChunkHit>> runs = new ArrayList<>();
+                for (String subQuery : org.example.service.KbQueryDecomposer.decompose(c.getQuestion())) {
+                    runs.add(kbSearchService.searchAs(libraryId, null, subQuery, topN, null, null,
+                            org.example.dto.SearchOptions.of().topK(topN).finalTopK(topN).recordTrace(false)));
+                }
+                results = fuseDocLevel(runs, 60, topN);
+                java.util.Set<Long> returnedDocs = new java.util.HashSet<>();
+                for (int i = 0; i < results.size(); i++) {
+                    KbChunkHit h = results.get(i);
+                    titles.add(h.getTitle());
+                    if (h.getDocId() != null) {
+                        returnedDocs.add(h.getDocId());
+                        if (expectedDocIds.contains(h.getDocId()) && firstHitRank == 0) {
+                            firstHitRank = i + 1;
+                        }
+                    }
+                }
+                // 多跳看的是“文档级覆盖”，不要求某一个分块同时出现全部关键词：
+                // 父子分块和长文档会把同一主题拆到多个块，块级全词命中会把正确的双文档召回误判为失败。
+                // expectedKeywords 仍用于用例语义标注和人工复核，不参与 hit 判定。
+                ok = expectedDocIds.stream().distinct().allMatch(returnedDocs::contains);
+                if (!expectedDocIds.isEmpty()) {
+                    ndcg = ndcgAtK(results, expectedDocIds);
+                    ndcgSum += ndcg;
+                    precisionSum += contextPrecision(results, expectedDocIds);
+                    recallSum += contextRecall(results, expectedDocIds);
+                    ndcgCaseCount++;
+                }
+            } catch (Exception e) {
+                log.warn("多跳评测用例检索异常 - caseId: {}, err: {}", c.getId(), e.getMessage());
+            }
+            if (ok) {
+                hit++;
+            }
+            if (firstHitRank > 0) {
+                mrrSum += 1.0 / firstHitRank;
+            }
+            List<String> missing = missingKeywords(c.getExpectedKeywords(), results);
+            details.add(new KbEvalResult.CaseResult(c.getId(), c.getQuestion(),
+                    c.getExpectedKeywords(), ok, titles.size(), firstHitRank, titles, ndcg, missing));
+        }
+        int total = cases.size();
+        double rate = total == 0 ? 0 : (double) hit / total;
+        double mrr = total == 0 ? 0 : mrrSum / total;
+        double ndcg = ndcgCaseCount == 0 ? 0 : ndcgSum / ndcgCaseCount;
+        double contextPrecision = ndcgCaseCount == 0 ? 0 : precisionSum / ndcgCaseCount;
+        double contextRecall = ndcgCaseCount == 0 ? 0 : recallSum / ndcgCaseCount;
+        log.info("多跳评测完成 - 用例: {}, 命中: {}, 命中率: {}%, MRR: {}, NDCG: {}, CP: {}, CR: {}", total, hit,
+                Math.round(rate * 1000) / 10.0, mrr, ndcg, contextPrecision, contextRecall);
+        return new KbEvalResult(total, hit, total - hit, rate, mrr, ndcg, contextPrecision, contextRecall, details);
+    }
+
     /** 单组评测：以显式空间身份检索（评测线程无登录态，不能读 SecurityContext）；options 为 null 或字段为 null 时沿用全局检索配置。 */
     private KbEvalResult runEval(String libraryId, Integer limit, Integer topK, SearchOptions options) {
         int topN = (topK == null || topK < 1) ? 5 : topK;
+        // 标准评测也不写 trace：离线用例是合成流量，不能混进线上 P95 样本。
+        if (options == null) {
+            options = SearchOptions.of();
+        }
+        options.recordTrace(false);
         // Golden Set 固定只跑检索类用例；格式/引用类（如“回答中不要出现 [n]”）不计入
         // HitRate，否则会把“回答格式”与“检索召回”混成一个不可解释的指标。
         List<RagEvalCaseEntity> retrievalCases =
@@ -269,7 +351,11 @@ public class KbEvalServiceImpl implements KbEvalService {
             return "RETRIEVAL";
         }
         String value = caseType.trim().toUpperCase(Locale.ROOT);
-        return value.equals("ANSWER_FORMAT") ? value : "RETRIEVAL";
+        if (value.equals("ANSWER_FORMAT") || value.equals("MULTI_HOP")
+                || value.equals("MULTI_HOP_REF")) {
+            return value;
+        }
+        return "RETRIEVAL";
     }
 
     @Override
@@ -399,4 +485,33 @@ public class KbEvalServiceImpl implements KbEvalService {
         }
         return missing;
     }
+    /**
+     * 文档级 RRF：每个子查询先按“文档首次出现”排名，避免同一长文档的多个分块
+     * 占据多个名次、把另一个概念的文档挤出 TopK。返回每个文档最佳命中块。
+     */
+    private List<org.example.dto.KbChunkHit> fuseDocLevel(
+            List<List<org.example.dto.KbChunkHit>> runs, int k, int topK) {
+        java.util.Map<Long, Double> scores = new java.util.HashMap<>();
+        java.util.Map<Long, org.example.dto.KbChunkHit> best = new java.util.HashMap<>();
+        for (List<org.example.dto.KbChunkHit> run : runs) {
+            java.util.Set<Long> seenDocs = new java.util.HashSet<>();
+            int rank = 0;
+            for (org.example.dto.KbChunkHit hit : run) {
+                if (hit.getDocId() == null || !seenDocs.add(hit.getDocId())) {
+                    continue;
+                }
+                rank++;
+                scores.merge(hit.getDocId(), 1.0 / (k + rank), Double::sum);
+                best.putIfAbsent(hit.getDocId(), hit);
+            }
+        }
+        List<java.util.Map.Entry<Long, Double>> ranked = new ArrayList<>(scores.entrySet());
+        ranked.sort((a, b) -> Double.compare(b.getValue(), a.getValue()));
+        List<org.example.dto.KbChunkHit> result = new ArrayList<>();
+        for (int i = 0; i < Math.min(topK, ranked.size()); i++) {
+            result.add(best.get(ranked.get(i).getKey()));
+        }
+        return result;
+    }
+
 }

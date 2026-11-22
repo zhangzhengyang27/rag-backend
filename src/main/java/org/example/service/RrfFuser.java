@@ -30,14 +30,26 @@ public final class RrfFuser {
      * @return 按融合分数降序的前 topK 个候选（保留各候选原始内容/元数据）
      */
     public static List<KbChunkHit> fuse(List<List<KbChunkHit>> runs, int k, int topK) {
+        return fuseWeighted(runs, null, k, topK);
+    }
+
+    /**
+     * 带路权重的融合：标题词法这类“高精度但候选少”的通道可以给更高权重，
+     * 让标题即实体的文档在 RRF 中不被几十条语义候选淹没；权重为空或不足时按 1.0 补齐。
+     */
+    public static List<KbChunkHit> fuseWeighted(List<List<KbChunkHit>> runs, List<Double> weights,
+                                                int k, int topK) {
         Map<String, Double> scores = new LinkedHashMap<>();
         Map<String, KbChunkHit> best = new LinkedHashMap<>();
-        for (List<KbChunkHit> run : runs) {
+        for (int runIndex = 0; runIndex < runs.size(); runIndex++) {
+            List<KbChunkHit> run = runs.get(runIndex);
+            double weight = weights != null && runIndex < weights.size() && weights.get(runIndex) != null
+                    ? weights.get(runIndex) : 1.0;
             int rank = 1;
             for (KbChunkHit hit : run) {
                 String id = hitKey(hit);
                 if (id != null) {
-                    scores.merge(id, 1.0 / (k + rank), Double::sum);
+                    scores.merge(id, weight / (k + rank), Double::sum);
                     best.putIfAbsent(id, hit);
                 }
                 rank++;

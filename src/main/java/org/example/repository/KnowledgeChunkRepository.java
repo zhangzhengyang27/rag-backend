@@ -14,6 +14,9 @@ public interface KnowledgeChunkRepository extends BaseRepository<KnowledgeChunkE
     /** 按文档 + 分块序号精确回查（检索侧补齐旧向量索引缺失的 heading/code 元数据）。 */
     Optional<KnowledgeChunkEntity> findByDocIdAndChunkIndex(Long docId, Integer chunkIndex);
 
+    /** 取文档首块作为精确标题召回的代表片段（标题已由问题显式给出，不需要再比块内相似度）。 */
+    Optional<KnowledgeChunkEntity> findFirstByDocIdOrderByChunkIndexAsc(Long docId);
+
     long countByDocId(Long docId);
 
     void deleteByDocId(Long docId);

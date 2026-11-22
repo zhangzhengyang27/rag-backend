@@ -80,6 +80,9 @@ public class KbAdminController {
     @Autowired
     private org.example.service.KbDeepDecisionService kbDeepDecisionService;
 
+    @Autowired
+    private org.example.service.KbDeepAnnotationService kbDeepAnnotationService;
+
     private String currentUserId() {
         // principal 为 record 类型时 getName() 返回 toString()，必须显式取 username
         return org.example.security.SecurityUtil.currentUsername();
@@ -259,6 +262,29 @@ public class KbAdminController {
     public KbEvalResult runEval(@RequestParam(value = "limit", required = false) Integer limit,
                                 @RequestParam(value = "topK", required = false) Integer topK) {
         return kbEvalService.run(resolveLibraryId(), limit, topK);
+    }
+
+    /** 生成 GraphRAG 门禁用的文档级实体/关系标注样本。 */
+    @PostMapping("/deep/annotations/seed")
+    public Map<String, Object> seedDeepAnnotations(
+            @RequestParam(value = "limit", defaultValue = "50") int limit) {
+        Map<String, Object> result = kbDeepAnnotationService.seedLinkGraph(limit);
+        auditLogService.record(resolveLibraryId(), currentUserId(), "DEEP_ANNOTATION_SEED",
+                "DEEP_ANNOTATION", null, "生成文档级实体关系样本：" + result.get("annotated") + " 篇");
+        return result;
+    }
+
+    /** GraphRAG 门禁标注样本汇总。 */
+    @GetMapping("/deep/annotations/summary")
+    public Map<String, Object> deepAnnotationSummary() {
+        return kbDeepAnnotationService.summary();
+    }
+
+    /** 多跳评测：Top-K 必须同时召回全部期望文档，且每个文档至少覆盖一个关键词。 */
+    @GetMapping("/eval/multi-hop")
+    public KbEvalResult runMultiHop(@RequestParam(value = "limit", required = false) Integer limit,
+                                    @RequestParam(value = "topK", required = false) Integer topK) {
+        return kbEvalService.runMultiHop(resolveLibraryId(), limit, topK);
     }
 
     /**

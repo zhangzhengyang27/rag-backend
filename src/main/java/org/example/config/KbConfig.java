@@ -86,6 +86,14 @@ public class KbConfig {
     @Value("${app.kb.retrieval.query-rewrite-enabled:true}")
     private boolean queryRewriteEnabled;
 
+    /** 标题词法通道：从文档标题中召回查询里的稀有技术词，补向量/BM25 漏掉的实体文档。 */
+    @Value("${app.kb.retrieval.title-lexical-enabled:true}")
+    private boolean titleLexicalEnabled;
+
+    /** 标题词法通道在 RRF 中的权重：默认 1.0，与其他路等价；调高会让标题实体压过语义候选。 */
+    @Value("${app.kb.retrieval.title-lexical-weight:1.0}")
+    private double titleLexicalWeight;
+
     @Value("${app.kb.retrieval.query-rewrite-timeout-ms:3000}")
     private long queryRewriteTimeoutMs;
 
@@ -269,6 +277,14 @@ public class KbConfig {
 
     public boolean isQueryRewriteEnabled() {
         return queryRewriteEnabled;
+    }
+
+    public boolean isTitleLexicalEnabled() {
+        return titleLexicalEnabled;
+    }
+
+    public double getTitleLexicalWeight() {
+        return titleLexicalWeight;
     }
 
     public long getQueryRewriteTimeoutMs() {

@@ -106,6 +106,10 @@ public class RuntimeConfigStore {
                 "向量召回最低分数过滤", () -> kbConfig.getRetrievalMinScore(), 0.0, 1.0));
         metas.put("retrieval.bm25-enabled", new ConfigMeta("retrieval.bm25-enabled", Type.BOOL, "检索召回",
                 "BM25 关键词通道开关", () -> kbConfig.isBm25Enabled()));
+        metas.put("retrieval.title-lexical-enabled", new ConfigMeta("retrieval.title-lexical-enabled", Type.BOOL, "检索召回",
+                "标题词法通道开关（稀有技术词实体召回，补多跳文档覆盖）", () -> kbConfig.isTitleLexicalEnabled()));
+        metas.put("retrieval.title-lexical-weight", new ConfigMeta("retrieval.title-lexical-weight", Type.DOUBLE, "检索召回",
+                "标题词法通道 RRF 权重（1.0=与其他路等价，越高标题实体越优先）", () -> kbConfig.getTitleLexicalWeight()));
         // 重排与改写
         metas.put("retrieval.rerank-enabled", new ConfigMeta("retrieval.rerank-enabled", Type.BOOL, "重排与改写",
                 "语义重排开关（重排模型需启动时已加载，否则不生效）", () -> kbConfig.isRerankEnabled()));

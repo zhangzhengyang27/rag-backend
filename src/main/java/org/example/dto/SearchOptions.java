@@ -15,6 +15,10 @@ public class SearchOptions {
     private Boolean bm25Enabled;
     /** 召回并最终返回的片段数 topK（null 表示沿用调用方传入的 topK） */
     private Integer topK;
+    /** 最终返回上限；仅评测等显式场景使用，null 表示沿用运行时 retrieval.final-top-k */
+    private Integer finalTopK;
+    /** 是否写入检索 trace；离线评测应关闭，避免合成查询污染线上 P95 样本。null 表示写入。 */
+    private Boolean recordTrace;
 
     public static SearchOptions of() {
         return new SearchOptions();
@@ -35,6 +39,16 @@ public class SearchOptions {
         return this;
     }
 
+    public SearchOptions finalTopK(Integer value) {
+        this.finalTopK = value;
+        return this;
+    }
+
+    public SearchOptions recordTrace(Boolean value) {
+        this.recordTrace = value;
+        return this;
+    }
+
     public Boolean getRerankEnabled() {
         return rerankEnabled;
     }
@@ -45,5 +59,13 @@ public class SearchOptions {
 
     public Integer getTopK() {
         return topK;
+    }
+
+    public Integer getFinalTopK() {
+        return finalTopK;
+    }
+
+    public Boolean getRecordTrace() {
+        return recordTrace;
     }
 }
