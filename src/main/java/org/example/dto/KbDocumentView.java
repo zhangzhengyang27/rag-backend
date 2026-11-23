@@ -39,6 +39,24 @@ public class KbDocumentView {
 
     private String content;
 
+    // ---- CMS 内容字段（列表/详情共用；旧导入文档这些字段可能为空） ----
+
+    private String categorySlug;
+
+    private String categoryDir;
+
+    private String docSlug;
+
+    private String description;
+
+    private String publishStatus;
+
+    private Date publishedAt;
+
+    private String publishedBy;
+
+    private Integer revision;
+
     public static KbDocumentView fromEntity(KnowledgeDocumentEntity e, boolean withContent) {
         return KbDocumentView.builder()
                 .id(e.getId())
@@ -53,6 +71,14 @@ public class KbDocumentView {
                 .createdDate(e.getCreatedDate())
                 .updatedDate(e.getUpdatedDate())
                 .content(withContent ? e.getContent() : null)
+                .categorySlug(e.getCategorySlug())
+                .categoryDir(e.getCategoryDir())
+                .docSlug(e.getDocSlug())
+                .description(e.getDescription())
+                .publishStatus(e.getPublishStatus())
+                .publishedAt(e.getPublishedAt())
+                .publishedBy(e.getPublishedBy())
+                .revision(e.getRevision())
                 .build();
     }
 }

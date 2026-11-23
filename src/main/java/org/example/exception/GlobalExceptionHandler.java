@@ -67,6 +67,20 @@ public class GlobalExceptionHandler {
         return ResponseEntity.status(HttpStatus.METHOD_NOT_ALLOWED).body(error(405, "请求方法不支持"));
     }
 
+    /**
+     * 框架语义异常（404 不存在、409 冲突、400 非法参数）：保留原始状态码。
+     * 公开内容 API 依赖 404 让前端 notFound、依赖 400 拒绝路径穿越；若被兜底成 500，
+     * 前端会把“文章不存在”误判为后端故障。
+     */
+    @ExceptionHandler(org.springframework.web.server.ResponseStatusException.class)
+    public ResponseEntity<Map<String, Object>> handleResponseStatus(
+            org.springframework.web.server.ResponseStatusException e) {
+        int status = e.getStatusCode().value();
+        String message = e.getReason() == null || e.getReason().isBlank() ? "请求失败" : e.getReason();
+        log.warn("请求状态异常: status={}, message={}", status, message);
+        return ResponseEntity.status(e.getStatusCode()).body(error(status, message));
+    }
+
     @ExceptionHandler(Exception.class)
     public ResponseEntity<Map<String, Object>> handleException(Exception e) {
         log.error("服务内部错误", e);

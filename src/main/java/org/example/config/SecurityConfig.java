@@ -82,6 +82,8 @@ public class SecurityConfig {
                         .requestMatchers("/auth/register", "/auth/login").permitAll()
                         .requestMatchers("/", "/index.html", "/css/**", "/js/**", "/favicon.ico", "/error").permitAll()
                         .requestMatchers("/actuator/health").permitAll()
+                        // 站点公开内容 API：只读已发布 CMS 内容，供无 Markdown 文件的 Next 前端使用
+                        .requestMatchers(org.springframework.http.HttpMethod.GET, "/content/**").permitAll()
                         .requestMatchers("/admin/**").hasRole("ADMIN")
                         .anyRequest().authenticated())
                 .exceptionHandling(ex -> ex.authenticationEntryPoint((request, response, authException) -> {

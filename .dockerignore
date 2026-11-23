@@ -1,0 +1,7 @@
+target
+models
+.git
+.env
+*.log
+.DS_Store
+._*

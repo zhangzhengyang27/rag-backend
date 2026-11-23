@@ -36,6 +36,44 @@ public interface KnowledgeDocumentRepository extends BaseRepository<KnowledgeDoc
     @Query("select d from KnowledgeDocumentEntity d where d.libraryId = :libraryId and (d.title like %:kw% or d.fileName like %:kw%)")
     Page<KnowledgeDocumentEntity> searchByKeywordInLibrary(@Param("libraryId") String libraryId, @Param("kw") String keyword, Pageable pageable);
 
+    /**
+     * CMS 内容列表：按来源类型隔离，keyword 匹配标题/路径，categoryDir 精确过滤。
+     * keyword/categoryDir 传 null 表示不过滤；CMS 文档量约 4.5k，分页查询走组合索引。
+     */
+    @Query("select d from KnowledgeDocumentEntity d where d.libraryId = :libraryId and d.sourceType = :sourceType "
+            + "and (:keyword is null or d.title like %:keyword% or d.filePath like %:keyword%) "
+            + "and (:categoryDir is null or d.categoryDir = :categoryDir)")
+    Page<KnowledgeDocumentEntity> searchCmsDocuments(@Param("libraryId") String libraryId,
+                                                     @Param("sourceType") String sourceType,
+                                                     @Param("keyword") String keyword,
+                                                     @Param("categoryDir") String categoryDir,
+                                                     Pageable pageable);
+
+    /**
+     * 站点公开索引：只取导航元数据，不加载 content LONGTEXT。
+     * 按 filePath 排序保证同一份数据库每次导出的顺序稳定（sitemap/RSS 不抖动）。
+     */
+    @Query("select new org.example.dto.ContentIndexItem(d.id, d.title, d.description, "
+            + "d.categorySlug, d.categoryDir, d.docSlug, d.filePath, d.fileSize, "
+            + "d.createdDate, d.updatedDate, d.publishedAt, d.revision) "
+            + "from KnowledgeDocumentEntity d "
+            + "where d.libraryId = :libraryId and d.sourceType = :sourceType "
+            + "and d.publishStatus = :publishStatus "
+            + "and d.categorySlug is not null and d.docSlug is not null "
+            + "order by d.filePath asc")
+    List<org.example.dto.ContentIndexItem> findPublishedContentIndex(@Param("libraryId") String libraryId,
+                                                                     @Param("sourceType") String sourceType,
+                                                                     @Param("publishStatus") String publishStatus);
+
+    /** 单个分类的全量正文（llms 分类全文一次拉取，避免前端逐篇请求 100+ 次）。 */
+    @Query("select d from KnowledgeDocumentEntity d where d.libraryId = :libraryId "
+            + "and d.sourceType = :sourceType and d.publishStatus = :publishStatus "
+            + "and d.categorySlug = :categorySlug order by d.filePath asc")
+    List<KnowledgeDocumentEntity> findPublishedByCategory(@Param("libraryId") String libraryId,
+                                                          @Param("sourceType") String sourceType,
+                                                          @Param("publishStatus") String publishStatus,
+                                                          @Param("categorySlug") String categorySlug);
+
     /** 精确标题引用召回：查询文本中完整出现文档标题时，直接取该文档（用于“结合《A》和《B》”类多文档问题）。 */
     @Query("select d from KnowledgeDocumentEntity d where d.libraryId in :libraryIds and locate(replace(d.title, ' ', ''), replace(:query, ' ', '')) > 0")
     List<KnowledgeDocumentEntity> findTitleMentioned(@Param("libraryIds") java.util.Collection<String> libraryIds,

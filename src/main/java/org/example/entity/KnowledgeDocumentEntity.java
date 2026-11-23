@@ -87,6 +87,38 @@ public class KnowledgeDocumentEntity extends BaseEntity {
     @Comment("最近一次人工复核时间")
     private java.util.Date lastReviewedAt;
 
+    // ---- CMS 内容源字段（V12）：数据库是站点内容真相，文件是可重建的物化镜像 ----
+
+    @Comment("站点分类 slug（如 javascript，对应 /docs/{slug}）")
+    @Column(length = 64)
+    private String categorySlug;
+
+    @Comment("站点分类目录（如 04-前端/03-JavaScript，镜像文件父目录；最长前缀匹配）")
+    @Column(length = 255)
+    private String categoryDir;
+
+    @Comment("分类内文档 slug（相对分类目录、不含 .md），决定站点详情页 URL")
+    @Column(length = 512)
+    private String docSlug;
+
+    @Comment("文档摘要（frontmatter.description 的结构化副本，用于列表/SEO）")
+    @Column(length = 2000)
+    private String description;
+
+    @Comment("发布状态：PUBLISHED/DRAFT（与索引状态 status 解耦）")
+    @Column(length = 20)
+    private String publishStatus = "PUBLISHED";
+
+    @Comment("最近发布时间")
+    private java.util.Date publishedAt;
+
+    @Comment("最近发布人")
+    @Column(length = 64)
+    private String publishedBy;
+
+    @Comment("当前内容版本号（每次发布 +1；与乐观锁 version 解耦）")
+    private Integer revision = 1;
+
     @Comment("索引状态：PENDING=待索引，INDEXED=已索引，FAILED=失败")
     @Enumerated(EnumType.STRING)
     @Column(length = 20)

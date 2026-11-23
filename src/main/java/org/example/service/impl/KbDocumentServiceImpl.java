@@ -89,6 +89,10 @@ public class KbDocumentServiceImpl implements KbDocumentService {
     @Value("${app.kb.docs-sync.library-code:default}")
     private String docsSyncLibraryCode;
 
+    /** CMS 模式下 docs 是物化镜像，目录同步必须停用，否则会把在线编辑覆盖回旧文件。 */
+    @Value("${app.kb.cms.enabled:true}")
+    private boolean cmsEnabled;
+
     /**
      * 目录导入/同步的路径白名单（逗号分隔；默认跟随 docs 同步根目录，见 application.properties）。
      * 管理员传入的服务器路径必须等于或位于某个白名单根之下，防止（管理员账号失陷时）
@@ -562,6 +566,11 @@ public class KbDocumentServiceImpl implements KbDocumentService {
     /** 受管同步文档（sourceType=SYNC）。 */
     @Override
     public String syncDocs(String path, String userId, String libraryId) {
+        if (cmsEnabled) {
+            throw new IllegalArgumentException(
+                    "CMS 内容源已启用：docs 目录改为 CMS 的物化镜像，不再执行文件→数据库同步；"
+                            + "请到「内容中心」编辑发布，或先关闭 app.kb.cms.enabled");
+        }
         Path root = Paths.get(path != null && !path.isBlank() ? path : docsSyncRoot).toAbsolutePath().normalize();
         if (!Files.isDirectory(root)) {
             throw new IllegalArgumentException("同步目录不存在: " + root);

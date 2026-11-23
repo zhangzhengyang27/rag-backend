@@ -55,12 +55,20 @@ public class KbDocsSyncScheduler {
     @Value("${app.kb.docs-sync.library-code:default}")
     private String libraryCode;
 
+    /** CMS 模式下文件是物化镜像，不能再由目录同步反向覆盖数据库。 */
+    @Value("${app.kb.cms.enabled:true}")
+    private boolean cmsEnabled;
+
     public KbDocsSyncScheduler(KbDocumentService kbDocumentService) {
         this.kbDocumentService = kbDocumentService;
     }
 
     @EventListener(ApplicationReadyEvent.class)
     public void onApplicationReady() {
+        if (cmsEnabled) {
+            log.info("CMS 内容源已启用（app.kb.cms.enabled=true），docs 目录同步停用；内容走 /admin/kb/cms 发布");
+            return;
+        }
         if (!enabled) {
             log.info("docs 目录同步未启用（app.kb.docs-sync.enabled=false），仅可通过 POST /admin/kb/documents/sync 手动触发");
             return;
