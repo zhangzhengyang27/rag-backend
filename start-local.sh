@@ -44,6 +44,8 @@ export DB_URL="jdbc:mysql://127.0.0.1:${MYSQL_PORT}/langchain4j?useUnicode=true&
 export KB_REDIS_HOST="127.0.0.1"
 export KB_REDIS_PORT="$REDIS_PORT"
 export REDIS_PASSWORD=""
+# DB-only 分支默认不写 docs 镜像；需要保留 Markdown 镜像时显式设为 true
+export KB_CMS_MIRROR_ENABLED="${KB_CMS_MIRROR_ENABLED:-false}"
 export JAVA_HOME="${JAVA_HOME:-$(/usr/libexec/java_home -v 17)}"
 
 # ---------- MySQL ----------

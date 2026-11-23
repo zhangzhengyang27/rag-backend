@@ -5,11 +5,11 @@
 
 ```
 用户 → docs.zhangzhengyang.com → frp/VPS → tech-codex (Next.js:4200)
-                                              ├─ 文档内容：SSR/SSG 直接读容器内 docs/
+                                              ├─ 文档内容：SSR 运行时读后端 /content/**
                                               └─ /kb-auth /kb-api /kb-admin ──kbnet──▶ rag-backend:8081
 rag-backend ──▶ kb-redis-stack（向量+BM25 索引，同 kbnet）
-            ──▶ dev-stack_devnet 的 dev-mysql（MySQL，langchain4j 库）
-            ──▶ 只读挂载 /docs（tech-codex docs 对账同步）与 /models（重排模型）
+            ──▶ dev-stack_devnet 的 dev-mysql（MySQL，langchain4j 库，唯一内容源）
+            ──▶ 只读挂载 /models（重排模型；DB-only 不再挂 docs）
 ```
 
 ## 构建与启动
@@ -28,7 +28,7 @@ docker compose up -d --build
 | 变量 | 值 | 说明 |
 |---|---|---|
 | `KB_REDIS_HOST` | `kb-redis-stack` | 向量/BM25 索引所在 Redis Stack |
-| `KB_DOCS_ROOT` | `/docs` | docs 只读挂载点，启动/发布钩子对账同步 |
+| `KB_CMS_MIRROR_ENABLED` | `false` | 关闭 CMS 写回 docs；内容只落 MySQL（迁移期可设 true 保留镜像） |
 | `KB_RERANK_MODEL_PATH` / `KB_RERANK_TOKENIZER_PATH` | `/models/...` | 重排模型挂载点 |
 | `CORS_ALLOWED_ORIGINS` | `https://docs.zhangzhengyang.com` | 必须与公网域名一致 |
 
@@ -36,11 +36,11 @@ docker compose up -d --build
 
 tech-codex 的 rewrites 把后端地址**在构建期烘焙进 routes-manifest**：
 前端镜像构建时必须注入 `KB_BACKEND_ORIGIN=http://rag-backend:8081`（见其 Dockerfile），
-运行期改环境变量无效。前端发布新镜像 = docs 内容更新 + 触发后端 docs 对账的完整流程。
+运行期改环境变量对 SSR 请求有效。DB-only 模式下内容发布不再需要重建前端镜像，Next 通过 CMS 代理失效缓存。
 
 ## 日常运维
 
-- **导入白名单**：目录导入/docs 同步仅允许 `app.kb.import.allowed-roots`（默认 = `KB_DOCS_ROOT`）白名单内的路径。
+- **历史导入**：一次性收编仍使用 `/admin/kb/cms/import`，需要临时挂载 docs；导入完成后可移除挂载与文件。
 - **数据增长**：检索追踪/聊天用量/审计日志由保留策略每日清理（`app.data-retention.*`，默认 90/180/365 天，0=不清理）。
 - **Schema 变更**：由 Flyway 管理（`db/migration`，V1 存量基线 + 增量脚本），Hibernate 仅 validate；
   升级前建议备份 MySQL。存量库首次启动会自动 baseline，无需手工干预。
