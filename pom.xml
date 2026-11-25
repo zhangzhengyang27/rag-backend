@@ -10,7 +10,7 @@
         <version>3.4.4</version>
         <relativePath/> <!-- lookup parent from repository -->
     </parent>
-    <groupId>org.example</groupId>
+    <groupId>com.techcodex</groupId>
     <artifactId>lostsystem</artifactId>
     <version>1.0-SNAPSHOT</version>
 
