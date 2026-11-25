@@ -2,6 +2,7 @@ package com.techcodex.service.impl;
 
 import com.techcodex.dto.KbChunkHit;
 import com.techcodex.dto.SearchOptions;
+import com.techcodex.entity.KbContentGapEntity;
 import com.techcodex.entity.KbEvalReportEntity;
 import com.techcodex.entity.RagEvalCaseEntity;
 import com.techcodex.repository.KbContentGapRepository;
@@ -27,6 +28,8 @@ import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /**
@@ -251,6 +254,56 @@ class KbEvalServiceImplTest {
         assertThat(trend.get(0).getDate()).isEqualTo("2026-08-23");
         assertThat(trend.get(0).getHitRate()).isEqualTo(0.9);
         assertThat(trend.get(1).getDate()).isEqualTo("2026-08-22");
+    }
+
+    /**
+     * 多跳命中回写：缺口可能是人工从多跳用例回流的（验证"双文档覆盖"），命中同样构成闭环证据。
+     * 判定按文档级全覆盖，和 RETRIEVAL 的块级关键字口径不同，但关闭动作一致。
+     */
+    @Test
+    void multiHopHitClosesLinkedGap() {
+        RagEvalCaseEntity c = new RagEvalCaseEntity();
+        c.setId(1L);
+        c.setCaseType("MULTI_HOP");
+        c.setQuestion("Java 和 WebFlux 的线程模型差异");
+        c.setExpectedDocIds("10");
+
+        KbContentGapEntity gap = new KbContentGapEntity();
+        gap.setId(9L);
+        gap.setStatus("OPEN");
+        gap.setNote("人工登记");
+
+        when(evalCaseRepository.findByCaseTypeOrderByIdAsc("MULTI_HOP")).thenReturn(List.of(c));
+        when(kbSearchService.searchAs(eq("default"), isNull(), anyString(), anyInt(), isNull(), isNull(), (SearchOptions) any()))
+                .thenReturn(List.of(hit(10L, "线程模型")));
+        when(gapRepository.findByEvalCaseId(1L)).thenReturn(List.of(gap));
+
+        KbEvalResult result = kbEvalService.runMultiHop("default", null, 5);
+
+        assertThat(result.getCases().get(0).isHit()).isTrue();
+        assertThat(gap.getStatus()).isEqualTo("RESOLVED");
+        assertThat(gap.getNote()).contains("评测命中自动关闭");
+        verify(gapRepository).save(gap);
+    }
+
+    @Test
+    void multiHopMissDoesNotTouchGaps() {
+        RagEvalCaseEntity c = new RagEvalCaseEntity();
+        c.setId(2L);
+        c.setCaseType("MULTI_HOP");
+        c.setQuestion("q");
+        c.setExpectedDocIds("10");
+
+        when(evalCaseRepository.findByCaseTypeOrderByIdAsc("MULTI_HOP")).thenReturn(List.of(c));
+        when(kbSearchService.searchAs(eq("default"), isNull(), anyString(), anyInt(), isNull(), isNull(), (SearchOptions) any()))
+                .thenReturn(List.of(hit(20L, "无关文档")));
+
+        KbEvalResult result = kbEvalService.runMultiHop("default", null, 5);
+
+        assertThat(result.getCases().get(0).isHit()).isFalse();
+        // 未命中不改状态：连缺口查询都不应发生，更不该写库
+        verify(gapRepository, never()).findByEvalCaseId(any(Long.class));
+        verify(gapRepository, never()).save(any());
     }
 
     private KbEvalReportEntity report(String date, double hitRate, double mrr, double ndcg, int caseCount) {

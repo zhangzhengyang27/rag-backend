@@ -153,6 +153,9 @@ public class KbEvalServiceImpl implements KbEvalService {
         double contextRecall = ndcgCaseCount == 0 ? 0 : recallSum / ndcgCaseCount;
         log.info("多跳评测完成 - 用例: {}, 命中: {}, 命中率: {}%, MRR: {}, NDCG: {}, CP: {}, CR: {}", total, hit,
                 Math.round(rate * 1000) / 10.0, mrr, ndcg, contextPrecision, contextRecall);
+        // 多跳用例也可能由内容缺口回流（人工把它改成多跳以验证"双文档覆盖"），命中同样是闭环证据。
+        // 判定口径与 RETRIEVAL 不同（文档级全覆盖），但"已有覆盖"这个结论一致。
+        closeResolvedGaps(details);
         return new KbEvalResult(total, hit, total - hit, rate, mrr, ndcg, contextPrecision, contextRecall, details);
     }
 
@@ -253,6 +256,9 @@ public class KbEvalServiceImpl implements KbEvalService {
      * 规则：命中即 RESOLVED；未命中不改状态——单次检索失败可能只是 topK 或排序抖动，
      * 不该把已规划的缺口重新打开。人工 IGNORED/TRIAGED 的结论也不覆盖，
      * 只有尚未 RESOLVED 的行会被关闭。
+     *
+     * 覆盖范围：runEval（A/B 两次调用都经它，天然覆盖）与 runMultiHop（文档级全覆盖判定）；
+     * 已 RESOLVED 的行直接跳过，因此同一缺口被重复命中不会重复写库。
      */
     private void closeResolvedGaps(List<KbEvalResult.CaseResult> details) {
         if (details == null || details.isEmpty()) return;

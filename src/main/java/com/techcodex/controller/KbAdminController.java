@@ -100,7 +100,7 @@ public class KbAdminController {
     }
 
     /** 重建单篇文档索引（同步执行，失败文档修复入口）。 */
-    @PostMapping("/documents/{id}/reindex")
+    @PostMapping("/documents/{id:\\d+}/reindex")
     public void reindexDocument(@PathVariable("id") Long id) {
         kbDocumentService.reindex(id, resolveLibraryId());
     }
@@ -109,14 +109,15 @@ public class KbAdminController {
      * 在线编辑文档（可选标题）并重建索引；docs 同步受管（SYNC）文档拒绝编辑。
      * title/content 走表单体（content 为 Markdown 原文）。
      */
-    @org.springframework.web.bind.annotation.PutMapping("/documents/{id}/content")
+    @org.springframework.web.bind.annotation.PutMapping("/documents/{id:\\d+}/content")
     public KbDocumentView updateContent(@PathVariable("id") Long id,
                                         @RequestParam(value = "title", required = false) String title,
                                         @RequestParam("content") String content) {
         return kbDocumentService.updateContent(id, resolveLibraryId(), title, content, currentUserId());
     }
 
-    @GetMapping("/documents/{id}")
+    /** 数字约束让 /documents/sync 这类非数字路径不再被当成 id，避免落到 405。 */
+    @GetMapping("/documents/{id:\\d+}")
     public KbDocumentView getDocument(@PathVariable("id") Long id,
                                       @RequestParam(value = "content", defaultValue = "false") boolean content) {
         return kbDocumentService.get(id, resolveLibraryId(), content);
@@ -145,7 +146,7 @@ public class KbAdminController {
         return kbDocumentService.getImportTask(taskId);
     }
 
-    @DeleteMapping("/documents/{id}")
+    @DeleteMapping("/documents/{id:\\d+}")
     public void delete(@PathVariable("id") Long id) {
         kbDocumentService.delete(id, resolveLibraryId());
     }
