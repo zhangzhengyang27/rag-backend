@@ -676,6 +676,44 @@ public class KbDocumentServiceImpl implements KbDocumentService {
         return documentRepository.findDistinctCategories(libraryId);
     }
 
+    @Override
+    public java.util.List<com.techcodex.vo.CategoryGroupVo> categoryGroups(String libraryId) {
+        // 一次分组查询拿到每个原分类的文档数，再按归并表汇总成顶级分类
+        java.util.Map<String, Long> counts = new java.util.HashMap<>();
+        for (KnowledgeDocumentRepository.CategoryCountRow row : documentRepository.countByCategory(libraryId)) {
+            counts.put(row.getCategory(), row.getCnt());
+        }
+        java.util.List<com.techcodex.vo.CategoryGroupVo> result = new java.util.ArrayList<>();
+        for (com.techcodex.library.CategoryGroups.Group group : com.techcodex.library.CategoryGroups.groups()) {
+            java.util.List<com.techcodex.vo.CategoryGroupVo.CategoryVo> children = new java.util.ArrayList<>();
+            long total = 0;
+            for (String child : group.children()) {
+                long count = counts.getOrDefault(child, 0L);
+                if (count > 0) {
+                    children.add(new com.techcodex.vo.CategoryGroupVo.CategoryVo(child, count));
+                    total += count;
+                }
+            }
+            if (total > 0) {
+                result.add(new com.techcodex.vo.CategoryGroupVo(group.name(), total, children));
+            }
+        }
+        // 归并表之外的新分类统一落到「其他」，避免新增文档的分类从下拉里静默消失
+        java.util.List<com.techcodex.vo.CategoryGroupVo.CategoryVo> otherChildren = new java.util.ArrayList<>();
+        long otherCount = 0;
+        for (java.util.Map.Entry<String, Long> entry : counts.entrySet()) {
+            if (!com.techcodex.library.CategoryGroups.isKnownChild(entry.getKey())) {
+                otherChildren.add(new com.techcodex.vo.CategoryGroupVo.CategoryVo(entry.getKey(), entry.getValue()));
+                otherCount += entry.getValue();
+            }
+        }
+        if (otherCount > 0) {
+            result.add(new com.techcodex.vo.CategoryGroupVo(
+                    com.techcodex.library.CategoryGroups.OTHER, otherCount, otherChildren));
+        }
+        return result;
+    }
+
     /** 从 Markdown frontmatter 解析单行标量键值（slug/category 等），无则返回 null */
     private String resolveFrontmatterScalar(String content, String key) {
         if (content == null || content.isBlank()) {

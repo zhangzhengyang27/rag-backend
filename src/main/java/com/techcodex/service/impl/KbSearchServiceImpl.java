@@ -451,9 +451,15 @@ public class KbSearchServiceImpl implements KbSearchService {
         java.util.Set<Long> spaceIds = (space != null && !space.isBlank())
                 ? documentRepository.findDocIdsByLibraryAndSpace(libraryId, space.trim())
                 : null;
-        java.util.Set<Long> categoryIds = (category != null && !category.isBlank())
-                ? documentRepository.findDocIdsByLibraryAndCategory(libraryId, category.trim())
-                : null;
+        java.util.Set<Long> categoryIds = null;
+        if (category != null && !category.isBlank()) {
+            // 顶级分类（如「测试与质量」）展开成多个原分类，用 IN 一次取回；
+            // 传入原分类名（如「CSS基础」）时退化为单值精确匹配，保留精确过滤能力
+            java.util.List<String> resolved = com.techcodex.library.CategoryGroups.resolve(category);
+            categoryIds = resolved.size() <= 1
+                    ? documentRepository.findDocIdsByLibraryAndCategory(libraryId, resolved.get(0))
+                    : documentRepository.findDocIdsByLibraryAndCategoryIn(libraryId, resolved);
+        }
         if ((pathIds != null && pathIds.isEmpty()) || (spaceIds != null && spaceIds.isEmpty())
                 || (categoryIds != null && categoryIds.isEmpty())) {
             return java.util.Collections.emptySet();

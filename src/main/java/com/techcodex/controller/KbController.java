@@ -98,12 +98,12 @@ public class KbController {
     }
 
     /**
-     * 公共知识库可用的课程分类清单（frontmatter category 去重升序），
-     * 供前端问答/检索的分类过滤器（与 /search、/chat-stream 的 category 参数同口径）。
+     * 公共知识库可用的课程分类（按主题归并为顶级分类，附文档数与原分类明细），
+     * 供前端问答/检索的可搜索分类过滤器；检索传顶级名时后端会展开为原分类集合。
      */
     @GetMapping("/categories")
-    public List<String> categories() {
-        return kbDocumentService.categories("default");
+    public java.util.List<com.techcodex.vo.CategoryGroupVo> categories() {
+        return kbDocumentService.categoryGroups("default");
     }
 
     /**

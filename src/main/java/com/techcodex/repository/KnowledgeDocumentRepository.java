@@ -110,6 +110,26 @@ public interface KnowledgeDocumentRepository extends BaseRepository<KnowledgeDoc
     @Query("select d.id from KnowledgeDocumentEntity d where d.libraryId = :libraryId and d.category = :category")
     java.util.Set<Long> findDocIdsByLibraryAndCategory(@Param("libraryId") String libraryId, @Param("category") String category);
 
+    /**
+     * 空间内按多个课程分类过滤（顶级分类展开为原分类集合时使用）：
+     * 一个顶级分类可能覆盖十几个 frontmatter 值，单值精确匹配会漏检。
+     */
+    @Query("select d.id from KnowledgeDocumentEntity d where d.libraryId = :libraryId and d.category in :categories")
+    java.util.Set<Long> findDocIdsByLibraryAndCategoryIn(@Param("libraryId") String libraryId,
+                                                        @Param("categories") java.util.Collection<String> categories);
+
+    /** 分类计数行：原分类名 + 文档数（分类下拉展示用） */
+    interface CategoryCountRow {
+        String getCategory();
+
+        long getCnt();
+    }
+
+    /** 空间内各原分类的文档数，供分类下拉按顶级汇总展示计数。 */
+    @Query("select d.category as category, count(d.id) as cnt from KnowledgeDocumentEntity d "
+            + "where d.libraryId = :libraryId and d.category is not null group by d.category")
+    java.util.List<CategoryCountRow> countByCategory(@Param("libraryId") String libraryId);
+
     /** 空间内课程分类去重清单（frontmatter category 升序，供前端问答/检索过滤器）。 */
     @Query("select distinct d.category from KnowledgeDocumentEntity d where d.libraryId = :libraryId and d.category is not null order by d.category")
     java.util.List<String> findDistinctCategories(@Param("libraryId") String libraryId);

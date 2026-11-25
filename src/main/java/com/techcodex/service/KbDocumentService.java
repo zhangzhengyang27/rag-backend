@@ -57,4 +57,10 @@ public interface KbDocumentService {
 
     /** 空间内课程分类去重清单（frontmatter category 升序），供用户侧问答/检索的分类过滤器。 */
     java.util.List<String> categories(String libraryId);
+
+    /**
+     * 分类归并视图：顶级分类 + 汇总文档数 + 其下原分类明细。
+     * 下拉只展示顶级（避免 47 个近义分类），检索传顶级名时后端展开为原分类集合。
+     */
+    java.util.List<com.techcodex.vo.CategoryGroupVo> categoryGroups(String libraryId);
 }
