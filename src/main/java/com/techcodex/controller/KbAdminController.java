@@ -72,9 +72,6 @@ public class KbAdminController {
     private com.techcodex.service.KbContentLintService kbContentLintService;
 
     @Autowired
-    private com.techcodex.service.KbGitSyncService kbGitSyncService;
-
-    @Autowired
     private com.techcodex.service.KbSectionBackfillService kbSectionBackfillService;
 
     @Autowired
@@ -153,13 +150,6 @@ public class KbAdminController {
         kbDocumentService.delete(id, resolveLibraryId());
     }
 
-    /** 手动触发 docs 目录自动同步（增量对账：新增/更新/改名/删除）；path 缺省用配置的同步根目录。 */
-    @PostMapping("/documents/sync")
-    public Map<String, String> syncDocs(@RequestParam(value = "path", required = false) String path) {
-        String taskId = kbDocumentService.syncDocs(path, currentUserId(), resolveLibraryId());
-        return Map.of("taskId", taskId);
-    }
-
     @PostMapping("/index/rebuild")
     public Map<String, String> rebuildIndex() {
         String taskId = kbDocumentService.rebuildIndex(resolveLibraryId());
@@ -191,18 +181,6 @@ public class KbAdminController {
         auditLogService.record(resolveLibraryId(), currentUserId(), "SECTION_BACKFILL", "SECTION", null,
                 "父子分块父级回填：sections=" + result.sections() + ", chunks=" + result.chunks());
         return java.util.Map.of("sections", result.sections(), "chunks", result.chunks());
-    }
-
-    /** GitHub 增量同步：浅克隆/更新仓库后复用目录导入，返回导入任务 ID。 */
-    @PostMapping("/sources/github/sync")
-    public com.techcodex.vo.KbGitSyncView syncGithub(
-            @RequestParam("repoUrl") String repoUrl,
-            @RequestParam(value = "branch", defaultValue = "main") String branch,
-            @RequestParam(value = "path", defaultValue = "") String path) {
-        var view = kbGitSyncService.sync(repoUrl, branch, path, currentUserId(), resolveLibraryId());
-        auditLogService.record(resolveLibraryId(), currentUserId(), "GITHUB_SYNC", "SOURCE", null,
-                "GitHub 同步：" + view.getRepoUrl() + " " + view.getBranch() + " " + view.getPath());
-        return view;
     }
 
     /** 全站内容 Lint：断链/同名标题 + 可粘贴 PR 的修复清单（只提示，不自动改稿）。 */

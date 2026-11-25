@@ -46,9 +46,6 @@ public interface KbDocumentService {
     /** 目录批量导入（递归扫描 .md），返回任务ID用于轮询进度；限定空间。 */
     String importDirectory(String path, String userId, String libraryId);
 
-    /** docs 目录自动同步（对账：新增/内容更新/改名/删除），path 缺省用配置的同步根目录；返回任务ID。 */
-    String syncDocs(String path, String userId, String libraryId);
-
     /** 查询导入/重建任务进度。 */
     KbImportTaskView getImportTask(String taskId);
 

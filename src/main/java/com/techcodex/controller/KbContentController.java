@@ -37,7 +37,9 @@ import java.util.concurrent.TimeUnit;
 @RequestMapping("/content")
 public class KbContentController {
 
-    private static final List<String> PUBLISHED_SOURCES = List.of("CMS", "SYNC");
+    // 只发布 CMS 来源：docs 目录同步链路已于 2026-11-25 下线，存量文档整体转为 CMS，
+    // 仍保留 SYNC 只会让"未清理干净的历史行"重新出现在站点上。
+    private static final List<String> PUBLISHED_SOURCES = List.of("CMS");
     private static final String PUBLISHED = "PUBLISHED";
     /**
      * 索引体积告警阈值（3MB）。

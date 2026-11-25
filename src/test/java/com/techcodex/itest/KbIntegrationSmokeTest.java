@@ -199,53 +199,6 @@ class KbIntegrationSmokeTest {
                 "管理端反馈分页应包含刚提交的点踩");
     }
 
-    /** 用例 2：docs 同步对账四用例——新增 / 内容更新 / 改名保 ID / 删除（含 frontmatter category 解析） */
-    @Test
-    void docsSync_createUpdateRenameDelete() throws Exception {
-        Path root = Files.createTempDirectory("kb-sync-itest");
-        String marker = newMarker();
-        String category = "itest-cat-" + marker.substring(0, 6);
-        String content = "---\ntitle: 冒烟同步\ncategory: " + category + "\n---\n\n# 冒烟同步\n\n标记 " + marker + "\n";
-
-        // 1) 新增
-        Path a = root.resolve("A-第一篇.md");
-        Files.writeString(a, content, StandardCharsets.UTF_8);
-        // 顶级目录带排序编号前缀时，space 取目录名但不带编号
-        Path nested = Files.createDirectories(root.resolve("04-前端"));
-        Files.writeString(nested.resolve("01-嵌套.md"), content, StandardCharsets.UTF_8);
-        awaitTaskDone(kbDocumentService.syncDocs(root.toString(), "itest", "default"));
-        KnowledgeDocumentEntity created = documentRepository
-                .findByLibraryIdAndFilePath("default", "A-第一篇.md").orElseThrow(() -> new AssertionError("同步后应存在 A-第一篇.md"));
-        assertEquals("SYNC", created.getSourceType());
-        assertEquals(category, created.getCategory(), "frontmatter category 应解析入库");
-        KnowledgeDocumentEntity nestedDoc = documentRepository
-                .findByLibraryIdAndFilePath("default", "04-前端/01-嵌套.md").orElseThrow(() -> new AssertionError("同步后应存在嵌套文档"));
-        assertEquals("前端", nestedDoc.getSpace(), "space 应为去掉编号前缀的顶级目录名");
-
-        // 2) 内容更新：复用 docId，hash 变化
-        Long docId = created.getId();
-        Files.writeString(a, content + "\n追加段落 " + newMarker() + "\n", StandardCharsets.UTF_8);
-        awaitTaskDone(kbDocumentService.syncDocs(root.toString(), "itest", "default"));
-        KnowledgeDocumentEntity updated = documentRepository.findById(docId).orElseThrow();
-        assertEquals(docId, updated.getId());
-        assertNotEquals(created.getContentHash(), updated.getContentHash(), "内容更新后 hash 应变化");
-
-        // 3) 改名（内容不变）：按 hash 识别，docId 保持、路径更新；
-        //    第 2 步对账不得把改名后的新路径误判为"路径冲突"计入失败
-        Path renamed = root.resolve("B-改名后.md");
-        Files.move(a, renamed);
-        KbImportTaskView renameView = awaitTaskDone(kbDocumentService.syncDocs(root.toString(), "itest", "default"));
-        KnowledgeDocumentEntity afterRename = documentRepository.findById(docId).orElseThrow();
-        assertEquals("B-改名后.md", afterRename.getFilePath(), "改名应原地更新 filePath");
-        assertEquals(0, renameView.getFailed(), "改名同步不应产生失败: " + renameView.getErrors());
-        assertTrue(renameView.getErrors().isEmpty(), "改名同步不应有错误条目: " + renameView.getErrors());
-
-        // 4) 删除：路径与 hash 均消失 → 文档与分块清理
-        Files.delete(renamed);
-        awaitTaskDone(kbDocumentService.syncDocs(root.toString(), "itest", "default"));
-        assertTrue(documentRepository.findById(docId).isEmpty(), "删除后文档应不存在");
-    }
-
     /**
      * 用例 3：管理端运营闭环——用户管理（角色/禁用/重置密码）、配额用户级覆盖、
      * 失败文档筛选与重试索引、点踩回流评测用例、检索 Trace 读取、用户维度用量。
@@ -358,16 +311,6 @@ class KbIntegrationSmokeTest {
         KnowledgeDocumentEntity afterEdit = documentRepository.findById(doc.getId()).orElseThrow();
         assertNotEquals(doc.getContentHash(), afterEdit.getContentHash(), "编辑后内容 hash 应变化");
         assertEquals(KbDocumentStatus.INDEXED, afterEdit.getStatus(), "编辑后应重建索引成功");
-
-        // 3) docs 同步受管（SYNC）文档拒绝在线编辑
-        Path syncRoot = Files.createTempDirectory("kb-edit-itest");
-        Files.writeString(syncRoot.resolve("s.md"), "# 受管文档\n\n内容 " + newMarker(), StandardCharsets.UTF_8);
-        awaitTaskDone(kbDocumentService.syncDocs(syncRoot.toString(), "itest", "default"));
-        KnowledgeDocumentEntity syncDoc = documentRepository
-                .findByLibraryIdAndFilePath("default", "s.md").orElseThrow();
-        IllegalArgumentException syncErr = assertThrows(IllegalArgumentException.class,
-                () -> kbDocumentService.updateContent(syncDoc.getId(), "default", null, "新内容", "admin"));
-        assertTrue(syncErr.getMessage().contains("受管"), "SYNC 文档编辑应被拒绝并提示");
 
         // 4) 运营告警：写入 → 同类去重 → 处理后消失（先清历史避免跨次运行残留）
         kbAlertService.openAlerts("default").stream()

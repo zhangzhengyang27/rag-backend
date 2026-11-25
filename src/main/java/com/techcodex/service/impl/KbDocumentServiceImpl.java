@@ -35,7 +35,6 @@ import java.util.Arrays;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -81,18 +80,6 @@ public class KbDocumentServiceImpl implements KbDocumentService {
     @Autowired
     private com.techcodex.service.SemanticCacheService semanticCacheService;
 
-    // ---- docs 目录自动同步配置（默认指向旁侧 tech-codex 前端的 docs 根，可用 KB_DOCS_ROOT 覆盖；
-    //      触发调度见 KbDocsSyncScheduler：启动对账 + 发布钩子/手动触发，轮询默认关闭） ----
-    @Value("${app.kb.docs-sync.root:${KB_DOCS_ROOT:../tech-codex/docs}}")
-    private String docsSyncRoot;
-
-    @Value("${app.kb.docs-sync.library-code:default}")
-    private String docsSyncLibraryCode;
-
-    /** CMS 模式下 docs 是物化镜像，目录同步必须停用，否则会把在线编辑覆盖回旧文件。 */
-    @Value("${app.kb.cms.enabled:true}")
-    private boolean cmsEnabled;
-
     /**
      * 目录导入/同步的路径白名单（逗号分隔；默认跟随 docs 同步根目录，见 application.properties）。
      * 管理员传入的服务器路径必须等于或位于某个白名单根之下，防止（管理员账号失陷时）
@@ -105,10 +92,7 @@ public class KbDocumentServiceImpl implements KbDocumentService {
     private static final String SOURCE_UPLOAD = "UPLOAD";
     private static final String SOURCE_URL = "URL";
     private static final String SOURCE_DIRECTORY = "DIRECTORY";
-    private static final String SOURCE_SYNC = "SYNC";
 
-    /** docs 同步仅处理的扩展名（docs 目录为纯 Markdown 知识库）。 */
-    private static final Set<String> SYNC_EXTENSIONS = new HashSet<>(Arrays.asList("md", "markdown"));
 
     /** 内存任务表：taskId -> 任务条目（视图 + 归属空间 + 创建时间）。 */
     private final ConcurrentHashMap<String, TaskEntry> tasks = new ConcurrentHashMap<>();
@@ -218,10 +202,6 @@ public class KbDocumentServiceImpl implements KbDocumentService {
     public KbDocumentView updateContent(Long id, String libraryId, String title, String content, String operator) {
         KnowledgeDocumentEntity doc = documentRepository.findByIdAndLibraryId(id, libraryId)
                 .orElseThrow(() -> new IllegalArgumentException("文档不存在"));
-        if (SOURCE_SYNC.equals(doc.getSourceType())) {
-            throw new IllegalArgumentException(
-                    "docs 同步受管文档不支持在线编辑，请在源仓库修改后执行「同步 docs 内容」");
-        }
         if (content == null || content.isBlank()) {
             throw new IllegalArgumentException("文档内容不能为空");
         }
@@ -593,293 +573,6 @@ public class KbDocumentServiceImpl implements KbDocumentService {
     public void sweepFinishedTasks() {
         long expireBefore = System.currentTimeMillis() - FINISHED_TASK_RETENTION_MILLIS;
         tasks.values().removeIf(e -> !"RUNNING".equals(e.view().getStatus()) && e.createdAt() < expireBefore);
-    }
-
-    /** 受管同步文档（sourceType=SYNC）。 */
-    @Override
-    public String syncDocs(String path, String userId, String libraryId) {
-        if (cmsEnabled) {
-            throw new IllegalArgumentException(
-                    "CMS 内容源已启用：docs 目录改为 CMS 的物化镜像，不再执行文件→数据库同步；"
-                            + "请到「内容中心」编辑发布，或先关闭 app.kb.cms.enabled");
-        }
-        Path root = Paths.get(path != null && !path.isBlank() ? path : docsSyncRoot).toAbsolutePath().normalize();
-        if (!Files.isDirectory(root)) {
-            throw new IllegalArgumentException("同步目录不存在: " + root);
-        }
-        assertImportPathAllowed(root);
-        auditLogService.record(libraryId, userId, "DOCS_SYNC", "DIR", null, "docs 目录同步：" + root);
-        return startTask(libraryId, view -> runSync(view, root, userId, libraryId));
-    }
-
-    /** docs 同步扫描的单文件快照。 */
-    private record SyncFile(String relPath, String content, String hash, long size, String fileName) {
-    }
-
-    /**
-     * docs 目录对账（与目录导入同语义并扩展失效清理）：
-     * <ul>
-     *   <li>快照中的新路径 → 新建并索引（sourceType=SYNC）；</li>
-     *   <li>路径未变内容变化 → 复用 docId 重建分块与向量；内容未变 → 幂等跳过；</li>
-     *   <li>受管文档路径消失但内容 hash 命中快照 → 判定为改名/移动，原地更新路径元数据并重建索引；</li>
-     *   <li>受管文档路径与内容 hash 均消失 → 删除分块与 Redis 向量（文档已不存在于 docs 目录）；</li>
-     *   <li>历史目录导入（sourceType 空/DIRECTORY）的同路径文档被收编为受管，后续随目录对账。</li>
-     * </ul>
-     * 与 runImport 的差异：不做跨路径内容去重（docs 树中同内容多路径应各自存在），
-     * 仅处理 Markdown，跳过隐藏目录与 images 资源目录。
-     */
-    private void runSync(KbImportTaskView view, Path root, String actor, String libraryId) {
-        LinkedHashMap<String, SyncFile> current = new LinkedHashMap<>();
-        HashMap<String, String> hashToPath = new HashMap<>();
-        try (Stream<Path> stream = Files.walk(root)) {
-            stream.filter(Files::isRegularFile)
-                  .filter(p -> isSyncable(root, p))
-                  .sorted(Comparator.comparing(Path::toString))
-                  .forEach(file -> {
-                      try {
-                          byte[] bytes = Files.readAllBytes(file);
-                          if (bytes.length > maxFileSize) {
-                              view.getErrors().add(file + ": 文件过大已跳过");
-                              view.setFailed(view.getFailed() + 1);
-                              return;
-                          }
-                          String content = new String(bytes, StandardCharsets.UTF_8);
-                          String hash = sha256(content);
-                          String relPath = root.relativize(file.toAbsolutePath()).toString().replace('\\', '/');
-                          if (current.put(relPath, new SyncFile(relPath, content, hash, bytes.length,
-                                  file.getFileName().toString())) == null) {
-                              hashToPath.putIfAbsent(hash, relPath);
-                          }
-                      } catch (Exception e) {
-                          view.getErrors().add(file + ": 读取失败 " + e.getMessage());
-                          view.setFailed(view.getFailed() + 1);
-                      }
-                  });
-        } catch (IOException e) {
-            log.error("docs 同步扫描失败", e);
-            view.setStatus("FAILED");
-            view.getErrors().add("扫描目录失败: " + e.getMessage());
-            return;
-        }
-        view.setTotal(current.size());
-
-        List<KnowledgeDocumentEntity> managed = documentRepository.findAllByLibraryIdAndSourceType(libraryId, SOURCE_SYNC);
-        Map<String, KnowledgeDocumentEntity> byPath = new HashMap<>();
-        for (KnowledgeDocumentEntity d : managed) {
-            byPath.put(d.getFilePath(), d);
-        }
-        Set<Long> handled = new HashSet<>();
-
-        // 1) 改名/移动：路径消失但内容 hash 命中快照 → 原地更新路径元数据并重建索引
-        int moved = 0;
-        for (KnowledgeDocumentEntity doc : managed) {
-            if (current.containsKey(doc.getFilePath())) {
-                continue;
-            }
-            String target = hashToPath.get(doc.getContentHash());
-            if (target == null || byPath.containsKey(target)) {
-                continue;
-            }
-            try {
-                SyncFile sf = current.get(target);
-                doc.setFilePath(target);
-                doc.setFileName(sf.fileName());
-                doc.setSpace(deriveSpace(target));
-                doc.setTitle(resolveTitle(sf.content(), null, sf.fileName()));
-                doc.setSiteSlug(resolveSiteSlug(sf.content()));
-                doc.setCategory(resolveCategory(sf.content()));
-                doc.setContent(sf.content());
-                doc.setContentHash(sf.hash());
-                doc.setFileSize(sf.size());
-                docCache.evict(doc.getId());
-                kbIndexer.indexDocument(doc, sf.content());
-                handled.add(doc.getId());
-                moved++;
-                view.setSucceeded(view.getSucceeded() + 1);
-                view.setProcessed(view.getProcessed() + 1);
-            } catch (Exception e) {
-                view.setFailed(view.getFailed() + 1);
-                if (view.getErrors().size() < 100) {
-                    view.getErrors().add(doc.getFilePath() + " → " + target + ": " + e.getMessage());
-                }
-                log.warn("docs 同步改名失败 - old: {}, new: {}, err: {}", doc.getFilePath(), target, e.getMessage());
-            }
-        }
-
-        // 2) 逐文件对账：新增 / 内容更新 / 幂等跳过（并收编存量目录导入文档）
-        int created = 0, updated = 0, skipped = 0;
-        for (SyncFile sf : current.values()) {
-            KnowledgeDocumentEntity doc = byPath.get(sf.relPath());
-            if (doc == null) {
-                KnowledgeDocumentEntity legacy = documentRepository
-                        .findByLibraryIdAndFilePath(libraryId, sf.relPath()).orElse(null);
-                if (legacy != null) {
-                    if (handled.contains(legacy.getId())) {
-                        // 该路径是第 1 步改名后的新路径：docId 已原地落库并计数（moved/succeeded/processed），
-                        // 这里再按"新路径新建"或"冲突"处理都会重复计数/误报失败，直接幂等跳过。
-                        continue;
-                    }
-                    if (legacy.getSourceType() == null || SOURCE_DIRECTORY.equals(legacy.getSourceType())) {
-                        doc = legacy; // 收编为同步受管
-                    } else {
-                        view.getErrors().add(sf.relPath() + ": 与既有 " + legacy.getSourceType() + " 文档路径冲突，已跳过");
-                        view.setFailed(view.getFailed() + 1);
-                        view.setProcessed(view.getProcessed() + 1);
-                        continue;
-                    }
-                }
-            }
-            try {
-                if (doc != null) {
-                    if (sf.hash().equals(doc.getContentHash())) {
-                        // 内容未变也做轻量元数据回填：category 等新增字段靠对账补齐存量数据（免重建索引）
-                        String fmCategory = resolveCategory(sf.content());
-                        if (!SOURCE_SYNC.equals(doc.getSourceType())
-                                || !java.util.Objects.equals(fmCategory, doc.getCategory())) {
-                            doc.setSourceType(SOURCE_SYNC);
-                            doc.setCategory(fmCategory);
-                            documentRepository.save(doc);
-                        }
-                        skipped++;
-                    } else {
-                        doc.setContent(sf.content());
-                        doc.setContentHash(sf.hash());
-                        doc.setFileSize(sf.size());
-                        doc.setTitle(resolveTitle(sf.content(), null, sf.fileName()));
-                        doc.setSiteSlug(resolveSiteSlug(sf.content()));
-                        doc.setCategory(resolveCategory(sf.content()));
-                        doc.setSourceType(SOURCE_SYNC);
-                        docCache.evict(doc.getId());
-                        kbIndexer.indexDocument(doc, sf.content());
-                        updated++;
-                    }
-                    view.setSucceeded(view.getSucceeded() + 1);
-                } else {
-                    try {
-                        quotaService.assertDocumentQuota(libraryId);
-                    } catch (com.techcodex.exception.QuotaExceededException e) {
-                        view.getErrors().add(sf.relPath() + ": " + e.getMessage());
-                        view.setFailed(view.getFailed() + 1);
-                        view.setProcessed(view.getProcessed() + 1);
-                        continue;
-                    }
-                    KnowledgeDocumentEntity created2 = new KnowledgeDocumentEntity();
-                    created2.setTitle(resolveTitle(sf.content(), null, sf.fileName()));
-                    created2.setSiteSlug(resolveSiteSlug(sf.content()));
-                    created2.setCategory(resolveCategory(sf.content()));
-                    created2.setFileName(sf.fileName());
-                    created2.setFilePath(sf.relPath());
-                    created2.setSpace(deriveSpace(sf.relPath()));
-                    created2.setFileSize(sf.size());
-                    created2.setContentHash(sf.hash());
-                    created2.setContent(sf.content());
-                    created2.setImportedBy(actor);
-                    created2.setLibraryId(libraryId);
-                    created2.setStatus(KbDocumentStatus.PENDING);
-                    created2.setSourceType(SOURCE_SYNC);
-                    kbIndexer.indexDocument(created2, sf.content());
-                    created++;
-                    view.setSucceeded(view.getSucceeded() + 1);
-                }
-            } catch (Exception e) {
-                view.setFailed(view.getFailed() + 1);
-                if (view.getErrors().size() < 100) {
-                    view.getErrors().add(sf.relPath() + ": " + e.getMessage());
-                }
-                log.warn("docs 同步单文件失败 - rel: {}, err: {}", sf.relPath(), e.getMessage());
-            } finally {
-                view.setProcessed(view.getProcessed() + 1);
-            }
-        }
-
-        // 3) 删除：受管文档路径与内容 hash 均已从快照消失（文档已不在 docs 目录）
-        int deleted = 0;
-        for (KnowledgeDocumentEntity doc : managed) {
-            if (handled.contains(doc.getId()) || current.containsKey(doc.getFilePath())) {
-                continue;
-            }
-            try {
-                java.util.List<String> vectorIds = chunkRepository.findVectorIdsByDocId(doc.getId());
-                transactionTemplate.executeWithoutResult(tx -> {
-                    chunkRepository.deleteByDocId(doc.getId());
-                    documentRepository.delete(doc);
-                });
-                if (vectorIds != null && !vectorIds.isEmpty()) {
-                    try {
-                        kbEmbeddingStore.removeAll(vectorIds);
-                    } catch (Exception e) {
-                        log.warn("docs 同步删除向量失败 - docId: {}, err: {}", doc.getId(), e.getMessage());
-                    }
-                }
-                docCache.evict(doc.getId());
-                deleted++;
-                view.setProcessed(view.getProcessed() + 1);
-            } catch (Exception e) {
-                view.setFailed(view.getFailed() + 1);
-                log.warn("docs 同步删除失败 - id: {}, err: {}", doc.getId(), e.getMessage());
-            }
-        }
-        // 4) 收尾：历史目录导入（sourceType 为空）且路径已不在快照的失效条目一并清理
-        //    （上传/URL 文档不受影响：其 filePath 为裸文件名或 URL，不含路径分隔符）
-        int legacyDeleted = 0;
-        for (KnowledgeDocumentEntity doc : documentRepository.findAllByLibraryIdAndSourceTypeIsNull(libraryId)) {
-            if (doc.getFilePath() == null || !doc.getFilePath().contains("/")
-                    || current.containsKey(doc.getFilePath())) {
-                continue;
-            }
-            try {
-                java.util.List<String> vectorIds = chunkRepository.findVectorIdsByDocId(doc.getId());
-                transactionTemplate.executeWithoutResult(tx -> {
-                    chunkRepository.deleteByDocId(doc.getId());
-                    documentRepository.delete(doc);
-                });
-                if (vectorIds != null && !vectorIds.isEmpty()) {
-                    try {
-                        kbEmbeddingStore.removeAll(vectorIds);
-                    } catch (Exception e) {
-                        log.warn("docs 同步清理存量向量失败 - docId: {}, err: {}", doc.getId(), e.getMessage());
-                    }
-                }
-                docCache.evict(doc.getId());
-                legacyDeleted++;
-                view.setProcessed(view.getProcessed() + 1);
-            } catch (Exception e) {
-                view.setFailed(view.getFailed() + 1);
-                log.warn("docs 同步清理存量条目失败 - id: {}, err: {}", doc.getId(), e.getMessage());
-            }
-        }
-        deleted += legacyDeleted;
-        view.setStatus("DONE");
-        invalidateSemanticCache(libraryId);
-        log.info("docs 目录同步完成 - root: {}, library: {}, 快照: {}, 新增: {}, 更新: {}, 改名: {}, 删除: {} (含存量失效 {}), 跳过: {}, 失败: {}",
-                root, libraryId, current.size(), created, updated, moved, deleted, legacyDeleted, skipped, view.getFailed());
-        auditLogService.record(libraryId, actor, "DOCS_SYNC", "DIR", null,
-                "docs 同步完成：新增 " + created + "，更新 " + updated + "，改名 " + moved + "，删除 " + deleted + "，跳过 " + skipped);
-        if (view.getFailed() > 0) {
-            kbAlertService.raise(libraryId, "DOCS_SYNC_FAILED", "WARN",
-                    "docs 同步存在 " + view.getFailed() + " 条失败，请检查同步目录",
-                    String.join("\n", view.getErrors().stream().limit(10).toList()));
-        }
-    }
-
-    /** docs 同步仅认 Markdown；跳过隐藏目录/文件、images 资源目录，以及导航/工作区元文件。 */
-    private boolean isSyncable(Path root, Path file) {
-        if (!SYNC_EXTENSIONS.contains(extensionOf(file.getFileName().toString()))) {
-            return false;
-        }
-        String fileName = file.getFileName().toString();
-        // 与前端 docs-reader 的可渲染口径一致：index.md 是导航页，_ 开头是仓库工作区元文件，
-        // 它们不应进入知识库或 llms 文档数；否则 DB 会比 AI 可读层多出 5 篇“幽灵文档”。
-        if ("index.md".equalsIgnoreCase(fileName) || fileName.startsWith("_")) {
-            return false;
-        }
-        for (Path seg : root.relativize(file)) {
-            String s = seg.toString();
-            if (s.startsWith(".") || "images".equals(s)) {
-                return false;
-            }
-        }
-        return true;
     }
 
     private void runRebuild(KbImportTaskView view, String libraryId) {

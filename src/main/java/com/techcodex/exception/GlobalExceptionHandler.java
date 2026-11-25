@@ -81,6 +81,17 @@ public class GlobalExceptionHandler {
         return ResponseEntity.status(e.getStatusCode()).body(error(status, message));
     }
 
+    /**
+     * 未匹配到任何路由：Spring 6 把"静态资源也没找到"包成 NoResourceFoundException。
+     * 这是客户端的 404，不该落到兜底 500，也不该打 ERROR——扫描器与过期链接会持续触发。
+     */
+    @ExceptionHandler(org.springframework.web.servlet.resource.NoResourceFoundException.class)
+    public ResponseEntity<Map<String, Object>> handleNoResource(
+            org.springframework.web.servlet.resource.NoResourceFoundException e) {
+        log.debug("路由不存在: {}", e.getResourcePath());
+        return ResponseEntity.status(HttpStatus.NOT_FOUND).body(error(404, "接口不存在"));
+    }
+
     @ExceptionHandler(Exception.class)
     public ResponseEntity<Map<String, Object>> handleException(Exception e) {
         log.error("服务内部错误", e);
