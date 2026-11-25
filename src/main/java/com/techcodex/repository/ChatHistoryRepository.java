@@ -35,6 +35,12 @@ public interface ChatHistoryRepository extends BaseRepository<ChatHistoryEntity>
     List<ChatHistoryEntity> findTop10BySessionIdAndConversationIdOrderByIdDesc(String sessionId, String conversationId);
 
     /**
+     * 指定对话内最新的两条记录（倒序，含最新）。
+     * 供「重新生成」定位最后一轮问答：最新一条应为助手回答，其前一条为对应的用户提问。
+     */
+    List<ChatHistoryEntity> findTop2BySessionIdAndConversationIdOrderByIdDesc(String sessionId, String conversationId);
+
+    /**
      * 指定会话(conversationId)的分页查询
      */
     Page<ChatHistoryEntity> findAllBySessionIdAndConversationId(String sessionId, String conversationId, Pageable pageable);
@@ -50,6 +56,7 @@ public interface ChatHistoryRepository extends BaseRepository<ChatHistoryEntity>
      * 当前用户的所有对话聚合信息，按最后一条消息 id 倒序（最近活动的会话在前）。
      * 一次查询带出每个会话的：会话ID、最新消息id（排序）、首条用户消息id（作标题/创建时间）、消息条数，
      * 令会话列表可由少量批量查询组装，避免逐会话 N+1 查询。
+     * limit 200：侧栏只需要近期会话；不设上限时长期使用会全量扫描并返回，拖慢页面首屏。
      */
     interface ConversationIdRow {
         String getConversationId();
@@ -70,6 +77,7 @@ public interface ChatHistoryRepository extends BaseRepository<ChatHistoryEntity>
             where c.session_id = :sessionId and c.conversation_id is not null
             group by c.conversation_id
             order by lastId desc
+            limit 200
             """, nativeQuery = true)
     List<ConversationIdRow> findConversationIdsBySessionId(@Param("sessionId") String sessionId);
 }

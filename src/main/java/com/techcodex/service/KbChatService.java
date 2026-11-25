@@ -41,6 +41,17 @@ public interface KbChatService {
     Flux<ServerSentEvent<String>> chatStream(String userId, String conversationId, String message,
                                              String docPath, String scope, String category);
 
+    /**
+     * 带「重新生成」语义的问答：regenerate=true 时，在生成新回答前先删除该对话的最后一轮问答
+     * （最后一条助手回答及其对应的用户提问），避免同一问题在历史里重复落库。
+     * 其余参数含义与六参版本一致；默认实现忽略 regenerate，保持向后兼容。
+     */
+    default Flux<ServerSentEvent<String>> chatStream(String userId, String conversationId, String message,
+                                                     String docPath, String scope, String category,
+                                                     boolean regenerate) {
+        return chatStream(userId, conversationId, message, docPath, scope, category);
+    }
+
     /** 分页查询指定对话的问答历史；conversationId 为空时回退为查询全部（旧行为）。 */
     Page<ChatHistoryVo> queryHistory(String userId, String conversationId, Pageable page);
 

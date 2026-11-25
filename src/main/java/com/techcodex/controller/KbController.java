@@ -80,8 +80,9 @@ public class KbController {
                                                      @RequestParam(value = "conversationId", required = false) String conversationId,
                                                      @RequestParam(value = "docPath", required = false) String docPath,
                                                      @RequestParam(value = "scope", required = false) String scope,
-                                                     @RequestParam(value = "category", required = false) String category) {
-        return kbChatService.chatStream(currentUserId(), conversationId, message, docPath, scope, category);
+                                                     @RequestParam(value = "category", required = false) String category,
+                                                     @RequestParam(value = "regenerate", required = false, defaultValue = "false") boolean regenerate) {
+        return kbChatService.chatStream(currentUserId(), conversationId, message, docPath, scope, category, regenerate);
     }
 
     /**

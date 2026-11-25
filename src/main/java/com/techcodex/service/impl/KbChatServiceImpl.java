@@ -76,6 +76,13 @@ public class KbChatServiceImpl implements KbChatService {
     /** 文档内问答整文档回退的正文上限（字符）：超长文档截断注入，防撑爆上下文。 */
     private static final int DOC_FALLBACK_MAX_CHARS = 12_000;
 
+    /** 知识库无相关内容时的兜底回答：同时用于 SSE 提示与历史落库，保证刷新/重开会话后提示仍在。 */
+    private static final String NOT_FOUND_ANSWER =
+            "知识库中未检索到与您问题明确相关的内容。请尝试换个更具体的说法，或联系管理员补充文档。";
+
+    /** 单轮问答展示的引用来源上限：超出部分对用户无增量信息，只会挤占回答区域。 */
+    private static final int MAX_SOURCES = 8;
+
     public KbChatServiceImpl(KbAssistant kbAssistant,
                              RateLimiter rateLimiter,
                              CircuitBreaker circuitBreaker,
@@ -130,6 +137,13 @@ public class KbChatServiceImpl implements KbChatService {
     @Override
     public Flux<ServerSentEvent<String>> chatStream(String userId, String conversationId, String message,
                                                     String docPath, String scope, String category) {
+        return chatStream(userId, conversationId, message, docPath, scope, category, false);
+    }
+
+    @Override
+    public Flux<ServerSentEvent<String>> chatStream(String userId, String conversationId, String message,
+                                                    String docPath, String scope, String category,
+                                                    boolean regenerate) {
         // 文档相对路径归一（docs 根相对，'/' 分隔）：空串视为全局问答
         final String pathFilter = (docPath == null || docPath.isBlank()) ? null : docPath.trim().replace('\\', '/');
         // 课程分类过滤：与 pathFilter 同为 docId 集合交集语义；单文档锁定优先，category 失效
@@ -187,6 +201,11 @@ public class KbChatServiceImpl implements KbChatService {
         String cid = (conversationId == null || conversationId.isBlank())
                 ? UUID.randomUUID().toString()
                 : conversationId.trim();
+        // 重新生成：先删掉该对话最后一轮问答（上一条助手回答 + 对应提问），
+        // 让本轮回答以"替换"而非"追加"的方式落库，否则同一问答会在历史里出现两份
+        if (regenerate) {
+            purgeLastTurn(userId, cid);
+        }
         // 把本次问答的检索空间集合绑定到对话ID：Agentic 工具（文档清单）在无登录态的
         // 回调线程上执行，经对话ID换取空间，fail-closed 于未绑定的对话。
         com.techcodex.tools.KbLibraryTools.bind(cid, scopeLibraries);
@@ -242,7 +261,7 @@ public class KbChatServiceImpl implements KbChatService {
                         : semanticCacheService.lookup(message, cacheLibraryId, cacheContext);
         if (cached.isPresent()) {
             com.techcodex.service.SemanticCacheService.Hit hit = cached.get();
-            List<KbChunkHit> cachedSources = hit.sources();
+            List<KbChunkHit> cachedSources = dedupeAndCap(hit.sources());
             markCitationIds(cachedSources);
             String cachedSourcesJson = toJson(cachedSources);
             log.info("语义缓存命中 - userId: {}, similarity: {}", userId, hit.similarity());
@@ -302,6 +321,8 @@ public class KbChatServiceImpl implements KbChatService {
                             scopedDoc.get().getId(), pathFilter, text.length());
                 }
             }
+            // 来源去重与截断（同文档同小节保留最高分），避免重复分块/低分噪声挤满引用区
+            sources = dedupeAndCap(sources);
             markCitationIds(sources);
             sourcesJson = toJson(sources);
 
@@ -337,12 +358,13 @@ public class KbChatServiceImpl implements KbChatService {
             final java.util.List<KbChunkHit> gapSources = java.util.List.copyOf(sources);
             return Flux.concat(
                     Flux.just(ChatEvent.conversation(cid).toSse()),
-                    Flux.just(ChatEvent.sources(sourcesJson).toSse()),
+                    // 拒答时不下发 sources：检索结果均为低分/不相关片段，展示成"引用来源"只会误导用户
                     Flux.just(ChatEvent.intention("knowledge_not_found").toSse()),
                     Flux.just(ChatEvent.done("完成").toSse())
             ).concatWith(Flux.defer(() -> {
-                // 拒答分支不产生实质回答，仍保留用户问题与空答占位，便于会话延续
-                saveHistory(userId, cid, message, "", libraryId);
+                // 拒答分支不产生实质回答：历史里写入兜底文案而非空串，
+                // 否则重新打开会话时，空回答会被前端渲染成永久"加载中"骨架
+                saveHistory(userId, cid, message, NOT_FOUND_ANSWER, libraryId);
                 recordUsage(libraryId, userId, cid, message, "", "", "", hitCount, startNanos);
                 scheduleGapSignals(gapLibraryId, userId, cid, message, gapSources, "", false, true, false);
                 return Flux.empty();
@@ -736,6 +758,70 @@ public class KbChatServiceImpl implements KbChatService {
     }
 
     /** 同步落库问答历史；libraryId 由调用方在请求线程解析后传入（流式回调线程无登录态）。 */
+    /**
+     * 重新生成：删除该对话最后一轮问答。
+     * 仅在最后一条确实是助手回答时才连带删除其前面的用户提问；数据异常（最后一条是用户消息等）
+     * 时只删这一条，避免误删更早的完整问答。
+     */
+    private void purgeLastTurn(String userId, String conversationId) {
+        try {
+            List<ChatHistoryEntity> lastTwo = chatHistoryRepository
+                    .findTop2BySessionIdAndConversationIdOrderByIdDesc(userId, conversationId);
+            if (lastTwo.isEmpty()) {
+                return;
+            }
+            ChatHistoryEntity newest = lastTwo.get(0);
+            if ("ai".equals(newest.getRole())) {
+                lastTwo.forEach(chatHistoryRepository::delete);
+            } else {
+                chatHistoryRepository.delete(newest);
+            }
+        } catch (Exception e) {
+            // 清理失败不阻断重生成：宁可历史多一条，也不能让"重新生成"点了没反应
+            log.warn("重新生成前清理上一轮历史失败 - userId: {}, conversationId: {}", userId, conversationId, e);
+        }
+    }
+
+    /**
+     * 引用来源去重 + 截断：同一文档同一小节只保留分数最高的一块，
+     * 保持首次出现的顺序（与模型回答里的引用编号大体一致），最多保留 MAX_SOURCES 条。
+     */
+    private List<KbChunkHit> dedupeAndCap(List<KbChunkHit> sources) {
+        if (sources == null || sources.size() <= 1) {
+            return sources;
+        }
+        java.util.Map<String, KbChunkHit> best = new java.util.LinkedHashMap<>();
+        for (KbChunkHit hit : sources) {
+            if (hit == null) {
+                continue;
+            }
+            String key = (hit.getFilePath() == null ? "" : hit.getFilePath())
+                    + "#" + (hit.getHeadingPath() == null ? "" : hit.getHeadingPath());
+            KbChunkHit current = best.get(key);
+            if (current == null || scoreOf(hit) >= scoreOf(current)) {
+                best.put(key, hit);
+            }
+        }
+        List<KbChunkHit> result = new ArrayList<>(best.values());
+        // 按相关度降序：引用区先展示最相关的文档，低分噪声沉底并在截断时被丢弃。
+        // 这里排序也决定了 sources 事件顺序与 prompt 证据顺序，二者必须保持一致，
+        // 模型正文里的 [n] 编号才与引用卡一一对应（编号在排序之后统一生成）。
+        result.sort((a, b) -> Double.compare(scoreOf(b), scoreOf(a)));
+        // 负分（rerank logit < 0）基本等同"不相关"：直接从引用区剔除。
+        // 若过滤后一条不剩（低分边界场景），保留原结果，避免回答完全没有出处。
+        List<KbChunkHit> positive = result.stream()
+                .filter(hit -> hit.getScore() == null || hit.getScore() >= 0)
+                .toList();
+        if (!positive.isEmpty()) {
+            result = new ArrayList<>(positive);
+        }
+        return result.size() <= MAX_SOURCES ? result : new ArrayList<>(result.subList(0, MAX_SOURCES));
+    }
+
+    private static double scoreOf(KbChunkHit hit) {
+        return hit.getScore() == null ? Double.NEGATIVE_INFINITY : hit.getScore();
+    }
+
     private void saveHistory(String userId, String conversationId, String question, String answer, String libraryId) {
         try {
             // 同步落库：在 SSE 流 end( done ) 前完成，保证会话列表/历史即时可查。
